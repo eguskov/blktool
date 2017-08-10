@@ -3,7 +3,7 @@
     "displayName": "BlkTool",
     "description": "Blk tools",
     "version": "0.0.1",
-    "publisher": "Gaijin",
+    "publisher": "eguskov",
     "engines": {
         "vscode": "^1.5.0"
     },
@@ -11,14 +11,72 @@
         "Other"
     ],
     "activationEvents": [
-        "onCommand:extension.sayHello"
+        "onCommand:extension.blktool.findInclude",
+        "onCommand:extension.blktool.findSelfInclude",
+        "onCommand:extension.blktool.findAllIncludes",
+        "onCommand:extension.blktool.openInclude",
+        "onCommand:extension.blktool.showResultFile"
     ],
     "main": "./out/src/extension",
     "contributes": {
-        "commands": [{
-            "command": "extension.sayHello",
-            "title": "Hello World"
-        }]
+        "commands": [
+            {
+                "command": "extension.blktool.findInclude",
+                "title": "BLK: Find include under cursor"
+            },
+            {
+                "command": "extension.blktool.findSelfInclude",
+                "title": "BLK: Find SELF includes"
+            },
+            {
+                "command": "extension.blktool.openInclude",
+                "title": "BLK: Open file under cursor"
+            },
+            {
+                "command": "extension.blktool.findAllIncludes",
+                "title": "BLK: Find all includes in current file"
+            },
+            {
+                "command": "extension.blktool.showResultFile",
+                "title": "BLK: Show result"
+            }
+        ],
+        "keybindings": [
+            {
+                "command": "extension.blktool.openInclude",
+                "key": "alt+insert",
+                "when": "editorTextFocus && resourceLangId == blk"
+            },
+            {
+                "command": "extension.blktool.findSelfInclude",
+                "key": "alt+shift+insert",
+                "when": "editorTextFocus && resourceLangId == blk"
+            }
+        ],
+        "menus": {
+            "editor/context": [
+                {
+                    "when": "resourceLangId == blk",
+                    "command": "extension.blktool.openInclude",
+                    "group": "navigation"
+                },
+                {
+                    "when": "resourceLangId == blk",
+                    "command": "extension.blktool.findInclude",
+                    "group": "navigation"
+                },
+                {
+                    "when": "resourceLangId == blk",
+                    "command": "extension.blktool.findSelfInclude",
+                    "group": "navigation"
+                },
+                {
+                    "when": "resourceLangId == blk",
+                    "command": "extension.blktool.showResultFile",
+                    "group": "navigation"
+                }
+            ]
+        }
     },
     "scripts": {
         "vscode:prepublish": "tsc -p ./",
@@ -31,5 +89,9 @@
         "mocha": "^2.3.3",
         "@types/node": "^6.0.40",
         "@types/mocha": "^2.2.32"
+    },
+    "dependencies": {
+        "@types/glob": "^5.0.29",
+        "glob": "^7.0.6"
     }
 }

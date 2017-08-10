@@ -13,3 +13,7 @@ The extension allows to open blk files refered in current file.
 ### 0.0.1
 
 Initial release of BLK Tools
+
+### 0.0.3
+
+Add ability to view pasred BLK

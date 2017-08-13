@@ -45,7 +45,7 @@ export namespace blk
   {
     static matcher =
     {
-      re: /^(\s*)([\w_@\-": ]+)(\s*)\{/mg,
+      re: /^(\s*)([\w_@\-": \[\]]+)(\s*)\{/mg,
       process: (scanner: Scanner, match: RegExpExecArray) =>
       {
         let [text, indent, name, ws] = match;
@@ -56,8 +56,8 @@ export namespace blk
 
         let token = new BlockToken(indent, name, ws);
 
-        token.singleLine = scanner.isDataMatch(/^(?:\s*)(?:[\w_@\-": ]+)(?:\s*)\{(?:[^\n\r]*?)\}/g);
-        token.empty = scanner.isDataMatch(/^(?:\s*)(?:[\w_@\-": ]+)(?:\s*)\{(?:\s*?)\}/g);
+        token.singleLine = scanner.isDataMatch(/^(?:\s*)(?:[\w_@\-": \[\]]+)(?:\s*)\{(?:[^\n\r]*?)\}/g);
+        token.empty = scanner.isDataMatch(/^(?:\s*)(?:[\w_@\-": \[\]]+)(?:\s*)\{(?:\s*?)\}/g);
 
         return token;
       }
@@ -94,7 +94,7 @@ export namespace blk
   {
     static matcher =
     {
-      re: /^(\s*)([\w_@\-": ]+):([\w ]+)(\s*=\s*)([^;\r\n\t]+);{0,1}/g,
+      re: /^(\s*)([\w_@\-": \[\]]+):([\w ]+)(\s*=\s*)([^;\r\n\t]+);{0,1}/g,
       process: (scanner: Scanner, match: RegExpExecArray) => new ParamToken(match[1], match[2], match[3], match[4], match[5])
     }
 

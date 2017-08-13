@@ -196,6 +196,13 @@ export namespace blk
         return token;
       }
 
+      if (this._offset < this._data.length)
+      {
+        ++this._offset;
+        this._data = this._data.substring(1);
+        return this.nextToken();
+      }
+
       return null;
     }
   }
@@ -207,7 +214,8 @@ export namespace blk
     addEdit(document: vscode.TextDocument, from: number, length: number, replaceWith: string)
     {
       let range = new vscode.Range(document.positionAt(from), document.positionAt(from + length));
-      this.edits.push(vscode.TextEdit.replace(range, replaceWith));
+      if (document.validateRange(range))
+        this.edits.push(vscode.TextEdit.replace(range, replaceWith));
     }
 
     provideDocumentRangeFormattingEdits(document: vscode.TextDocument, range: vscode.Range, options: vscode.FormattingOptions, token: vscode.CancellationToken): vscode.TextEdit[] | Thenable<vscode.TextEdit[]>
@@ -223,6 +231,8 @@ export namespace blk
       let isFirstToken = true;
       while (curToken)
       {
+        // console.log(curToken);
+
         let newLineCount = 0;
         for (let ch of curToken.indent)
           if (ch == "\n")
@@ -247,22 +257,24 @@ export namespace blk
         else if (curToken instanceof BlockEndToken)
         {
           let openBlock = blockTokens[blockTokens.length - 1];
-
-          --level;
-          blockTokens.pop();
-
-          let block = <BlockEndToken>curToken;
-          let indent = '  '.repeat(level);
-          if (block.indent != indent)
+          if (openBlock && level > 0)
           {
-            let empty = openBlock && openBlock.empty;
-            let singleLine = openBlock && openBlock.singleLine;
-            if (empty)
-              indent = '';
-            else if (singleLine)
-              indent = ' ';
+            --level;
+            blockTokens.pop();
 
-            this.addEdit(document, block.offset, block.indent.length, (singleLine || empty ? "" : "\n") + indent);
+            let block = <BlockEndToken>curToken;
+            let indent = '  '.repeat(level);
+            if (block.indent != indent)
+            {
+              let empty = openBlock && openBlock.empty;
+              let singleLine = openBlock && openBlock.singleLine;
+              if (empty)
+                indent = '';
+              else if (singleLine)
+                indent = ' ';
+
+              this.addEdit(document, block.offset, block.indent.length, (singleLine || empty ? "" : "\n") + indent);
+            }
           }
         }
         else if (curToken instanceof ParamToken)
@@ -299,6 +311,8 @@ export namespace blk
         curToken = scanner.nextToken();
         isFirstToken = false;
       }
+
+      // console.log(scanner);
 
       return this.edits;
     }

@@ -35,10 +35,7 @@ function onFileOpenError(reason)
 function getFilename(uri: vscode.Uri | string)
 {
   let filePath = uri instanceof vscode.Uri ? (<vscode.Uri>uri).fsPath : uri;
-  let pos = filePath.lastIndexOf('/');
-  if (pos < 0)
-    pos = filePath.lastIndexOf('\\');
-  return filePath.substring(pos + 1);
+  return path.basename(filePath);
 }
 
 function getPath(uri: vscode.Uri | string)
@@ -122,21 +119,23 @@ function getFullPathFromInclude(text: string, root_path: string)
   if (absMatch)
   {
     let filePath = absMatch[1].substring(1);
-    return path.normalize(vscode.workspace.rootPath + '/../../' + filePath);
+    let conf = vscode.workspace.getConfiguration("blktool");
+    return path.normalize(path.join(conf.get('root'), filePath));
   }
 
   let relMatch = g_relative_include_pattern.exec(text);
   g_relative_include_pattern.lastIndex = 0;
   if (relMatch)
   {
-    return path.normalize(root_path + '/' + relMatch[1]);
+    return path.normalize(path.join(root_path, relMatch[1]));
   }
 
   let strMatch = g_include_in_string_pattern.exec(text);
   g_include_in_string_pattern.lastIndex = 0;
   if (strMatch)
   {
-    return path.normalize(vscode.workspace.rootPath + '/' + strMatch[1]);
+    let conf = vscode.workspace.getConfiguration("blktool");
+    return path.normalize(path.join(conf.get('root'), 'develop', 'gameBase', strMatch[1]));
   }
 
   return null;
@@ -165,19 +164,32 @@ function findIncludeInFiles(filename: string, root_path: string)
   }
 
   let roots = ['<root>'];
+  let conf = vscode.workspace.getConfiguration("blktool");
+  let gameBasePath = path.join(conf.get('root'), 'develop', 'gameBase');
 
-  let basepath = root_path.replace(vscode.workspace.rootPath, '');
+  let relPath = path.relative(root_path, gameBasePath);
+
+  let basepath = root_path.replace(gameBasePath, '');
   if (basepath[0] == '\\')
     basepath = basepath.substring(1);
 
   let pathParts = basepath.split('\\');
   let filePath = '';
+  let shouldAddToRoots = false;
   for (let part of pathParts)
   {
     if (part === '' || part[0] === '.')
       continue;
+    if (part.indexOf(':') >= 0)
+      part = part.toUpperCase();
+
     filePath += part + '\\';
-    roots.push(filePath);
+    if (!shouldAddToRoots && part === 'gameBase')
+      shouldAddToRoots = true;
+
+    let p = filePath.replace(gameBasePath + path.sep, '');
+    if (shouldAddToRoots && p.length > 0)
+      roots.push(p);
   }
 
   vscode.window.showQuickPick(roots, { ignoreFocusOut: false, placeHolder: 'Select root folder for search' }).then(search_root =>
@@ -189,7 +201,7 @@ function findIncludeInFiles(filename: string, root_path: string)
 
     vscode.workspace.findFiles('**' + search_root + '*.blk', '').then(files =>
     {
-      logLine('Searching in ' + files.length + ' blk files...');
+      logLine('Searching in ' + (files ? files.length : 0) + ' blk files...');
 
       let processOneFile = file =>
       {
@@ -228,7 +240,7 @@ function findIncludeInFiles(filename: string, root_path: string)
           });
       };
 
-      if (files.length)
+      if (files && files.length)
       {
         g_search_in_progress = true;
         processOneFile(files.pop());
@@ -237,11 +249,8 @@ function findIncludeInFiles(filename: string, root_path: string)
   });
 }
 
-
-
 export function activate(context: vscode.ExtensionContext)
 {
-
   let out = vscode.window.createOutputChannel("BLKTool");
   out.show();
   g_out = out;
@@ -278,7 +287,6 @@ export function activate(context: vscode.ExtensionContext)
 
   context.subscriptions.push(vscode.commands.registerCommand('extension.blktool.showResultFile', () =>
   {
-
     let editor = vscode.window.activeTextEditor;
     if (!editor)
       return;

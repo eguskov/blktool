@@ -118,9 +118,8 @@ function getFullPathFromInclude(text: string, root_path: string)
   g_absolute_include_pattern.lastIndex = 0;
   if (absMatch)
   {
-    let filePath = absMatch[1].substring(1);
     let conf = vscode.workspace.getConfiguration("blktool");
-    return path.normalize(path.join(conf.get('root'), filePath));
+    return path.normalize(path.join(conf.get('root'), absMatch[1]));
   }
 
   let relMatch = g_relative_include_pattern.exec(text);

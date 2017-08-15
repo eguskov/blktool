@@ -21,3 +21,7 @@ Add ability to view pasred BLK
 ### 0.0.5
 
 Formatter
+
+### 0.0.9
+
+Information about errors

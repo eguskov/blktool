@@ -248,6 +248,8 @@ function findIncludeInFiles(filename: string, root_path: string)
   });
 }
 
+let diagnosticCollection: vscode.DiagnosticCollection = null;
+
 export function activate(context: vscode.ExtensionContext)
 {
   let out = vscode.window.createOutputChannel("BLKTool");
@@ -255,6 +257,11 @@ export function activate(context: vscode.ExtensionContext)
   g_out = out;
 
   logLine('Welcome to BLK Tool');
+
+  diagnosticCollection = vscode.languages.createDiagnosticCollection('blk');
+  context.subscriptions.push(diagnosticCollection);
+
+  blk.setDiagnosticCollection(diagnosticCollection);
 
   vscode.languages.setLanguageConfiguration('blk', {
     wordPattern: /("(?:[^\\\"]*(?:\\.)?)*"?)|[^\s{}\[\],:]+/,

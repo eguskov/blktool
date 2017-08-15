@@ -94,8 +94,15 @@ export namespace blk
   {
     static matcher =
     {
-      re: /^(\s*)([\w_@\-": \[\]]+):([\w ]+)(\s*=\s*)([^;\r\n\t]+);{0,1}/g,
-      process: (scanner: Scanner, match: RegExpExecArray) => new ParamToken(match[1], match[2], match[3], match[4], match[5])
+      re: /^(\s*)([\w_@\-": \[\]]+):([\w ]+)(\s*=\s*)([^;\}\r\n\t]+);{0,1}/g,
+      process: (scanner: Scanner, match: RegExpExecArray) =>
+      {
+        let paramType = match[3];
+        let m = /^\s*$/gm.exec(paramType);
+        if (m && m[0].length == paramType.length)
+          return null;
+        return new ParamToken(match[1], match[2], paramType, match[4], match[5]);
+      }
     }
 
     constructor(indent: string, public name: string, public paramType: string, public equals: string, public paramValue: string)
@@ -104,6 +111,7 @@ export namespace blk
     }
 
     get paramTypeOffset() { return this.offset + this.indent.length + this.name.length + 1; }
+    get paramValueOffset() { return this.equalsOffset + this.equals.length; }
     get equalsOffset() { return this.paramTypeOffset + this.paramType.length; }
   }
 
@@ -146,6 +154,7 @@ export namespace blk
   export class Scanner
   {
     private _offset = 0;
+    private _linesWithError = {};
 
     constructor(private _data: string)
     {
@@ -174,7 +183,7 @@ export namespace blk
       return [str, ''];
     }
 
-    nextToken(): Token
+    nextToken(document: vscode.TextDocument, errors: vscode.Diagnostic[]): Token
     {
       for (let m of tokenMatchers)
       {
@@ -196,15 +205,34 @@ export namespace blk
         return token;
       }
 
+      let match = /^\s*$/gm.exec(this._data);
+      if (match && match[0].length !== this._data.length)
+      {
+        let line = document.positionAt(this._offset + 1).line;
+        if (!this._linesWithError[line])
+        {
+          this._linesWithError[line] = true;
+          let range = document.lineAt(line).range;
+          errors.push(new vscode.Diagnostic(range, "Unknown token", vscode.DiagnosticSeverity.Error));
+        }
+      }
+
       if (this._offset < this._data.length)
       {
         ++this._offset;
         this._data = this._data.substring(1);
-        return this.nextToken();
+        return this.nextToken(document, errors);
       }
 
       return null;
     }
+  }
+
+  let g_diagnostic_collection: vscode.DiagnosticCollection = null;
+
+  export function setDiagnosticCollection(diagnosticCollection: vscode.DiagnosticCollection)
+  {
+    g_diagnostic_collection = diagnosticCollection;
   }
 
   export class RangeFormattingEditProvider implements vscode.DocumentRangeFormattingEditProvider
@@ -222,11 +250,15 @@ export namespace blk
     {
       this.edits = [];
 
+      let errors: vscode.Diagnostic[] = [];
+
+      g_diagnostic_collection.clear();
+
       let fullText = document.getText(range);
       let scanner = new Scanner(fullText);
 
       let level = 0;
-      let curToken = scanner.nextToken();
+      let curToken = scanner.nextToken(document, errors);
       let blockTokens: BlockToken[] = [];
       let isFirstToken = true;
       while (curToken)
@@ -264,7 +296,7 @@ export namespace blk
 
             let block = <BlockEndToken>curToken;
             let indent = '  '.repeat(level);
-            if (block.indent != indent)
+            if (!isFirstToken)
             {
               let empty = openBlock && openBlock.empty;
               let singleLine = openBlock && openBlock.singleLine;
@@ -275,6 +307,11 @@ export namespace blk
 
               this.addEdit(document, block.offset, block.indent.length, (singleLine || empty ? "" : "\n") + indent);
             }
+          }
+          else
+          {
+            let range = document.lineAt(document.positionAt(curToken.offset).line).range;
+            errors.push(new vscode.Diagnostic(range, "Missed {", vscode.DiagnosticSeverity.Error));
           }
         }
         else if (curToken instanceof ParamToken)
@@ -290,6 +327,12 @@ export namespace blk
               indent = ' ';
 
             this.addEdit(document, param.offset, param.indent.length, (singleLine ? "" : "\n".repeat(newLineCount)) + indent);
+
+            let m = /\s+$/.exec(param.paramValue);
+            if (m && m[0].length > 0)
+            {
+              this.addEdit(document, param.paramValueOffset + param.paramValue.length - m[0].length, m[0].length, '');
+            }
           }
 
           if (param.equals != ' = ')
@@ -308,11 +351,13 @@ export namespace blk
             this.addEdit(document, include.offset, include.indent.length, "\n".repeat(newLineCount) + indent);
         }
 
-        curToken = scanner.nextToken();
+        curToken = scanner.nextToken(document, errors);
         isFirstToken = false;
       }
 
       // console.log(scanner);
+
+      g_diagnostic_collection.set(document.uri, errors);
 
       return this.edits;
     }

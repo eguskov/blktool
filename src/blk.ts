@@ -355,6 +355,12 @@ export namespace blk
         isFirstToken = false;
       }
 
+      if (level !== 0)
+      {
+        let range = document.lineAt(document.lineCount - 1).range;
+        errors.push(new vscode.Diagnostic(range, "Missed }", vscode.DiagnosticSeverity.Error));
+      }
+
       // console.log(scanner);
 
       g_diagnostic_collection.set(document.uri, errors);

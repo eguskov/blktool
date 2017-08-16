@@ -2,7 +2,7 @@
   "name": "blktool",
   "displayName": "BlkTool",
   "description": "Blk tools",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "eguskov",
   "engines": {
     "vscode": "^1.5.0"

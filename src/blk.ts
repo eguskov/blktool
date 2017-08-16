@@ -15,7 +15,7 @@ export namespace blk
   interface IMatcher
   {
     re: RegExp;
-    process: ((scanner: Scanner, match: RegExpExecArray) => Token | Error);
+    process: ((scanner: Scanner, match: RegExpExecArray) => Token | Error | Warning);
   }
 
   let tokenMatchers: IMatcher[] = [];
@@ -38,9 +38,17 @@ export namespace blk
     }
   }
 
+  class Warning
+  {
+    constructor(public token: Token, public msg: string, public offset: number)
+    {
+    }
+  }
+
   class Token
   {
-    public offset: number = -1;
+    public skipFormatting = false;
+    public offset = -1;
 
     constructor(public indent: string, public type: TokenType)
     {
@@ -52,7 +60,7 @@ export namespace blk
   {
     static matcher =
     {
-      re: /^(\s*)([\w_@\-": \[\]]+)(\s*)\{/mg,
+      re: /^(\s*)([\w_@\-": \[\]]+(?:(?:\/\/(?:[^\r\n]*)|(?:\/\*(?:[\s\S]*)\*\/)))?)(\s*)\{/mg,
       process: (scanner: Scanner, match: RegExpExecArray) =>
       {
         let [text, indent, name, ws] = match;
@@ -65,6 +73,10 @@ export namespace blk
 
         token.singleLine = scanner.isDataMatch(/^(?:\s*)(?:[\w_@\-": \[\]]+)(?:\s*)\{(?:[^\n\r]*?)\}/g);
         token.empty = scanner.isDataMatch(/^(?:\s*)(?:[\w_@\-": \[\]]+)(?:\s*)\{(?:\s*?)\}/g);
+
+        let p = name.indexOf('//');
+        if (p >= 0)
+          return new Warning(token, 'Comment must not be between <BlockName> and  {', p);
 
         return token;
       }
@@ -285,6 +297,20 @@ export namespace blk
           break;
         }
 
+        if (token instanceof Warning)
+        {
+          let line = document.positionAt(this._offset + 1 + (<Error>token).offset).line;
+          if (!this._linesWithError[line])
+          {
+            this._linesWithError[line] = true;
+            let range = document.lineAt(line).range;
+            errors.push(new vscode.Diagnostic(range, (<Warning>token).msg, vscode.DiagnosticSeverity.Warning));
+          }
+
+          token = (<Warning>token).token;
+          token.skipFormatting = true;
+        }
+
         (<Token>token).offset = this._offset;
 
         this.addOffset(match[0].length);
@@ -329,10 +355,14 @@ export namespace blk
 
   export class RangeFormattingEditProvider implements vscode.DocumentRangeFormattingEditProvider
   {
+    onlyValidate = false;
     edits: vscode.TextEdit[] = [];
 
     addEdit(document: vscode.TextDocument, from: number, length: number, replaceWith: string)
     {
+      if (this.onlyValidate)
+        return;
+
       let range = new vscode.Range(document.positionAt(from), document.positionAt(from + length));
       if (document.validateRange(range))
         this.edits.push(vscode.TextEdit.replace(range, replaceWith));
@@ -346,7 +376,7 @@ export namespace blk
 
       g_diagnostic_collection.clear();
 
-      let fullText = document.getText(range);
+      let fullText = document.getText(/* range */);
       let scanner = new Scanner(fullText);
 
       let level = 0;
@@ -369,15 +399,18 @@ export namespace blk
           let block = <BlockToken>curToken;
           blockTokens.push(block);
 
-          if (block.ws != ' ')
-            this.addEdit(document, block.wsOffset, block.ws.length, ' ');
-
-          let indent = '  '.repeat(level);
-          if (!isFirstToken)
+          if (!block.skipFormatting)
           {
-            let newIndent = "\n".repeat(newLineCount) + indent;
-            if (newIndent !== block.indent)
-              this.addEdit(document, block.offset, block.indent.length, newIndent);
+            if (block.ws != ' ')
+              this.addEdit(document, block.wsOffset, block.ws.length, ' ');
+
+            let indent = '  '.repeat(level);
+            if (!isFirstToken)
+            {
+              let newIndent = "\n".repeat(newLineCount) + indent;
+              if (newIndent !== block.indent)
+                this.addEdit(document, block.offset, block.indent.length, newIndent);
+            }
           }
 
           ++level;
@@ -467,7 +500,17 @@ export namespace blk
 
       // console.log(scanner);
 
-      g_diagnostic_collection.set(document.uri, errors);
+      if (!this.onlyValidate && errors.length > 0 && this.edits.length > 0)
+      {
+        this.onlyValidate = true;
+        setTimeout(() => this.provideDocumentRangeFormattingEdits(document, range, options, token), 500);
+      }
+
+      if (this.onlyValidate || errors.length === 0)
+      {
+        this.onlyValidate = false;
+        g_diagnostic_collection.set(document.uri, errors);
+      }
 
       return this.edits;
     }

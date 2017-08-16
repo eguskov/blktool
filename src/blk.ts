@@ -15,7 +15,7 @@ export namespace blk
   interface IMatcher
   {
     re: RegExp;
-    process: ((scanner: Scanner, match: RegExpExecArray) => Token);
+    process: ((scanner: Scanner, match: RegExpExecArray) => Token | Error);
   }
 
   let tokenMatchers: IMatcher[] = [];
@@ -29,6 +29,13 @@ export namespace blk
     else
       tokenMatchers.push(target.matcher);
     return target;
+  }
+
+  class Error
+  {
+    constructor(public msg: string, public offset: number)
+    {
+    }
   }
 
   class Token
@@ -92,16 +99,59 @@ export namespace blk
   @Matcher
   class ParamToken extends Token
   {
+    static paramValueCheckers =
+    {
+      't': /[\'\"](?:.*?)[\'\"]/,
+      'i': /[\-\d]+/,
+      'i64': /[\-\d]+/,
+      'r': /[\-\d\.]+/,
+      'p2': /[\-\d\.]+\,(?:\s*)[\-\d\.]+/,
+      'p3': /[\-\d\.]+\,(?:\s*)[\-\d\.]+\,(?:\s*)[\-\d\.]+/,
+      'p4': /[\-\d\.]+\,(?:\s*)[\-\d\.]+\,(?:\s*)[\-\d\.]+\,(?:\s*)[\-\d\.]+/,
+      'ip2': /[\-\d]+\,(?:\s*)[\-\d]+/,
+      'ip3': /[\-\d]+\,(?:\s*)[\-\d]+\,(?:\s*)[\-\d]+/,
+      'ip4': /[\-\d]+\,(?:\s*)[\-\d]+\,(?:\s*)[\-\d]+\,(?:\s*)[\-\d]+/,
+      'b': /\btrue\b|\bfalse\b|\byes\b|\bno\b|\bon\b|\boff\b/,
+      'c': /[\-\d]+\,(?:\s*)[\-\d]+\,(?:\s*)[\-\d]+(?:\,(?:\s*)[\-\d]+)?/,
+      'm': /\[\[[\-\d\.]+\, [\-\d\.]+\, [\-\d\.]+\] \[[\-\d\.]+\, [\-\d\.]+\, [\-\d\.]+\] \[[\-\d\.]+\, [\-\d\.]+\, [\-\d\.]+\] \[[\-\d\.]+\, [\-\d\.]+\, [\-\d\.]+\]\]/
+    }
+
     static matcher =
     {
       re: /^(\s*)([\w_@\-": \[\]]+):([\w ]+)(\s*=\s*)([^;\}\r\n\t]+);{0,1}/g,
       process: (scanner: Scanner, match: RegExpExecArray) =>
       {
         let paramType = match[3];
-        let m = /^\s*$/gm.exec(paramType);
-        if (m && m[0].length == paramType.length)
-          return null;
-        return new ParamToken(match[1], match[2], paramType, match[4], match[5]);
+        let paramValue = match[5];
+
+        let commentPos = paramValue.indexOf('/*');
+        if (commentPos < 0)
+          commentPos = paramValue.indexOf('//');
+
+        if (commentPos >= 0)
+        {
+          match[0] = match[0].substring(0, match[1].length + match[2].length + paramType.length + match[4].length + commentPos);
+          match[5] = paramValue = paramValue.substring(0, commentPos);
+        }
+
+        let t = scanner.trimWS(paramType);
+        let p = scanner.trimWS(paramValue);
+
+        let checker = ParamToken.paramValueCheckers[t];
+        if (checker)
+        {
+          let m = checker.exec(p);
+          if (!m || m[0].length != p.length)
+          {
+            console.log(paramValue, m);
+            return new Error('Wrong value[' + t + '] = ' + p, match[1].length + match[2].length + paramType.length);
+          }
+        }
+
+        if (checker === undefined)
+          return new Error('Unknown parameter type: ' + t, match[1].length + match[2].length);
+
+        return new ParamToken(match[1], match[2], paramType, match[4], paramValue);
       }
     }
 
@@ -140,7 +190,7 @@ export namespace blk
         process: (scanner: Scanner, match: RegExpExecArray) => new CommentToken(match[1], match[2])
       },
       {
-        re: /^(?:\s*)\/\*([^\*]*)\*\//gm,
+        re: /^(\s*)\/\*([^\*]*)\*\//gm,
         process: (scanner: Scanner, match: RegExpExecArray) => new CommentToken(match[1], match[2])
       }
     ]
@@ -183,8 +233,20 @@ export namespace blk
       return [str, ''];
     }
 
+    trimWS(str: string)
+    {
+      return str.replace(/(?:^\s+)|(?:\s+$)/gm, '');
+    }
+
+    addOffset(offset: number)
+    {
+      this._offset += offset;
+      this._data = this._data.substring(offset);
+    }
+
     nextToken(document: vscode.TextDocument, errors: vscode.Diagnostic[]): Token
     {
+      let hasTokenWithError = false;
       for (let m of tokenMatchers)
       {
         m.re.lastIndex = 0;
@@ -197,18 +259,38 @@ export namespace blk
         if (!token)
           continue;
 
-        token.offset = this._offset;
+        if (token instanceof Error)
+        {
+          let line = document.positionAt(this._offset + 1 + (<Error>token).offset).line;
+          if (!this._linesWithError[line])
+          {
+            this._linesWithError[line] = true;
+            let range = document.lineAt(line).range;
+            errors.push(new vscode.Diagnostic(range, (<Error>token).msg, vscode.DiagnosticSeverity.Error));
+          }
 
-        this._offset += match[0].length;
-        this._data = this._data.substring(match[0].length);
+          hasTokenWithError = true;
+          this.addOffset(match[0].length);
 
-        return token;
+          break;
+        }
+
+        (<Token>token).offset = this._offset;
+
+        this.addOffset(match[0].length);
+
+        return <Token>token;
       }
+
+      if (hasTokenWithError)
+        return this.nextToken(document, errors);
 
       let match = /^\s*$/gm.exec(this._data);
       if (match && match[0].length !== this._data.length)
       {
-        let line = document.positionAt(this._offset + 1).line;
+        let m = /^\s+/gm.exec(this._data);
+        let wsOffset = m ? m[0].length : 0;
+        let line = document.positionAt(this._offset + wsOffset).line;
         if (!this._linesWithError[line])
         {
           this._linesWithError[line] = true;
@@ -216,6 +298,7 @@ export namespace blk
           errors.push(new vscode.Diagnostic(range, "Unknown token", vscode.DiagnosticSeverity.Error));
         }
       }
+
 
       if (this._offset < this._data.length)
       {
@@ -349,6 +432,12 @@ export namespace blk
           let indent = '  '.repeat(level);
           if (!isFirstToken)
             this.addEdit(document, include.offset, include.indent.length, "\n".repeat(newLineCount) + indent);
+        }
+        else if (curToken instanceof CommentToken)
+        {
+          let indent = '  '.repeat(level);
+          if (!isFirstToken)
+            this.addEdit(document, curToken.offset, curToken.indent.length, "\n".repeat(newLineCount) + indent);
         }
 
         curToken = scanner.nextToken(document, errors);

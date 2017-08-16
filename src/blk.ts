@@ -60,7 +60,7 @@ export namespace blk
   {
     static matcher =
     {
-      re: /^(\s*)([\w_@\-": \[\]]+(?:(?:\/\/(?:[^\r\n]*)|(?:\/\*(?:[\s\S]*)\*\/)))?)(\s*)\{/mg,
+      re: /^(\s*)([\w_@\-": \[\]]+(?:(?:\/\/(?:[^\r\n]*)|(?:\/\*(?:[\s\S]*?)\*\/)))?)(\s*)\{/mg,
       process: (scanner: Scanner, match: RegExpExecArray) =>
       {
         let [text, indent, name, ws] = match;
@@ -74,9 +74,12 @@ export namespace blk
         token.singleLine = scanner.isDataMatch(/^(?:\s*)(?:[\w_@\-": \[\]]+)(?:\s*)\{(?:[^\n\r]*?)\}/g);
         token.empty = scanner.isDataMatch(/^(?:\s*)(?:[\w_@\-": \[\]]+)(?:\s*)\{(?:\s*?)\}/g);
 
-        let p = name.indexOf('//');
-        if (p >= 0)
-          return new Warning(token, 'Comment must not be between <BlockName> and  {', p);
+        let n = scanner.trimWS(name);
+        let p = n.indexOf('//');
+        if (p > 0)
+          return new Warning(token, 'Comment must not be between <BlockName> and  {', name.length);
+        else if (p === 0)
+          return null;
 
         return token;
       }
@@ -212,7 +215,7 @@ export namespace blk
         process: (scanner: Scanner, match: RegExpExecArray) => new CommentToken(match[1], match[2])
       },
       {
-        re: /^(\s*)\/\*([\s\S]*)\*\//gm,
+        re: /^(\s*)\/\*([\s\S]*?)\*\//gm,
         process: (scanner: Scanner, match: RegExpExecArray) => new CommentToken(match[1], match[2])
       }
     ]
@@ -505,12 +508,13 @@ export namespace blk
         this.onlyValidate = true;
         setTimeout(() => this.provideDocumentRangeFormattingEdits(document, range, options, token), 500);
       }
-
-      if (this.onlyValidate || errors.length === 0)
+      else if (this.onlyValidate)
       {
         this.onlyValidate = false;
         g_diagnostic_collection.set(document.uri, errors);
       }
+
+      console.log('Done!');
 
       return this.edits;
     }

@@ -130,8 +130,21 @@ export namespace blk
 
         if (commentPos >= 0)
         {
-          match[0] = match[0].substring(0, match[1].length + match[2].length + paramType.length + match[4].length + commentPos);
+          {
+            let commentPos = match[0].indexOf('/*');
+            if (commentPos < 0)
+              commentPos = match[0].indexOf('//');
+            if (commentPos >= 0)
+              match[0] = match[0].substring(0, commentPos);
+          }
           match[5] = paramValue = paramValue.substring(0, commentPos);
+        }
+
+        let [paramValueWithoutWS, paramValueWS] = scanner.trimTailWS(paramValue);
+        if (paramValueWS.length > 0)
+        {
+          match[5] = paramValue = paramValueWithoutWS;
+          match[0] = match[0].substring(0, match[0].length - paramValueWS.length);
         }
 
         let t = scanner.trimWS(paramType);
@@ -142,10 +155,7 @@ export namespace blk
         {
           let m = checker.exec(p);
           if (!m || m[0].length != p.length)
-          {
-            console.log(paramValue, m);
             return new Error('Wrong value[' + t + '] = ' + p, match[1].length + match[2].length + paramType.length);
-          }
         }
 
         if (checker === undefined)
@@ -190,7 +200,7 @@ export namespace blk
         process: (scanner: Scanner, match: RegExpExecArray) => new CommentToken(match[1], match[2])
       },
       {
-        re: /^(\s*)\/\*([^\*]*)\*\//gm,
+        re: /^(\s*)\/\*([\s\S]*)\*\//gm,
         process: (scanner: Scanner, match: RegExpExecArray) => new CommentToken(match[1], match[2])
       }
     ]
@@ -299,7 +309,6 @@ export namespace blk
         }
       }
 
-
       if (this._offset < this._data.length)
       {
         ++this._offset;
@@ -365,7 +374,11 @@ export namespace blk
 
           let indent = '  '.repeat(level);
           if (!isFirstToken)
-            this.addEdit(document, block.offset, block.indent.length, "\n".repeat(newLineCount) + indent);
+          {
+            let newIndent = "\n".repeat(newLineCount) + indent;
+            if (newIndent !== block.indent)
+              this.addEdit(document, block.offset, block.indent.length, newIndent);
+          }
 
           ++level;
         }
@@ -409,13 +422,15 @@ export namespace blk
             if (singleLine)
               indent = ' ';
 
-            this.addEdit(document, param.offset, param.indent.length, (singleLine ? "" : "\n".repeat(newLineCount)) + indent);
+            let newIndent = (singleLine ? "" : "\n".repeat(newLineCount)) + indent;
+            if (newIndent !== param.indent)
+              this.addEdit(document, param.offset, param.indent.length, newIndent);
 
-            let m = /\s+$/.exec(param.paramValue);
-            if (m && m[0].length > 0)
-            {
-              this.addEdit(document, param.paramValueOffset + param.paramValue.length - m[0].length, m[0].length, '');
-            }
+            // let m = /\s+$/.exec(param.paramValue);
+            // if (m && m[0].length > 0)
+            // {
+            //   this.addEdit(document, param.paramValueOffset + param.paramValue.length - m[0].length, m[0].length, '');
+            // }
           }
 
           if (param.equals != ' = ')
@@ -435,9 +450,9 @@ export namespace blk
         }
         else if (curToken instanceof CommentToken)
         {
-          let indent = '  '.repeat(level);
-          if (!isFirstToken)
-            this.addEdit(document, curToken.offset, curToken.indent.length, "\n".repeat(newLineCount) + indent);
+          // let indent = '  '.repeat(level);
+          // if (!isFirstToken)
+          //   this.addEdit(document, curToken.offset, curToken.indent.length, "\n".repeat(newLineCount) + indent);
         }
 
         curToken = scanner.nextToken(document, errors);

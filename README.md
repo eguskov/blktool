@@ -25,3 +25,7 @@ Formatter
 ### 0.0.9
 
 Information about errors
+
+### 0.1.5
+
+More advance formatting

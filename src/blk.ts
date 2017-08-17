@@ -77,7 +77,14 @@ export namespace blk
         let n = scanner.trimWS(name);
         let p = n.indexOf('//');
         if (p > 0)
+        {
+          token._commentOffset = text.indexOf('//');
+          token.comment = text.substring(token._commentOffset, text.indexOf("\n", token._commentOffset));
+
+          console.log(token._commentOffset, token.comment, "'" + name + "'");
+
           return new Warning(token, 'Comment must not be between <BlockName> and  {', name.length);
+        }
         else if (p === 0)
           return null;
 
@@ -88,12 +95,17 @@ export namespace blk
     singleLine: boolean = false;
     empty: boolean = false;
 
+    comment: string = null;
+    private _commentOffset: number = -1;
+
     constructor(indent: string, public name: string, public ws: string)
     {
       super(indent, TokenType.Block);
     }
 
-    get wsOffset() { return this.offset + this.indent.length + this.name.length; }
+    get nameOffset() { return this.offset + this.indent.length; }
+    get wsOffset() { return this.nameOffset + this.name.length; }
+    get commentOffset() { return this.offset + this._commentOffset; }
   }
 
   @Matcher
@@ -126,7 +138,7 @@ export namespace blk
       'ip2': /[\-\d]+\,(?:\s*)[\-\d]+/,
       'ip3': /[\-\d]+\,(?:\s*)[\-\d]+\,(?:\s*)[\-\d]+/,
       'ip4': /[\-\d]+\,(?:\s*)[\-\d]+\,(?:\s*)[\-\d]+\,(?:\s*)[\-\d]+/,
-      'b': /\btrue\b|\bfalse\b|\byes\b|\bno\b|\bon\b|\boff\b/,
+      'b': /\btrue\b|\bfalse\b|\byes\b|\bno\b|\bon\b|\boff\b|\b1\b|\b0\b/,
       'c': /[\-\d]+\,(?:\s*)[\-\d]+\,(?:\s*)[\-\d]+(?:\,(?:\s*)[\-\d]+)?/,
       'm': /\[\[[\-\d\.]+\, [\-\d\.]+\, [\-\d\.]+\] \[[\-\d\.]+\, [\-\d\.]+\, [\-\d\.]+\] \[[\-\d\.]+\, [\-\d\.]+\, [\-\d\.]+\] \[[\-\d\.]+\, [\-\d\.]+\, [\-\d\.]+\]\]/
     }
@@ -165,18 +177,20 @@ export namespace blk
         let t = scanner.trimWS(paramType);
         let p = scanner.trimWS(paramValue);
 
+        let token = new ParamToken(match[1], match[2], paramType, match[4], paramValue);
+
         let checker = ParamToken.paramValueCheckers[t];
         if (checker)
         {
           let m = checker.exec(p);
           if (!m || m[0].length != p.length)
-            return new Error('Wrong value[' + t + '] = ' + p, match[1].length + match[2].length + paramType.length);
+            return new Warning(token, 'Wrong value[' + t + '] = ' + p, match[1].length + match[2].length + paramType.length);
         }
 
         if (checker === undefined)
-          return new Error('Unknown parameter type: ' + t, match[1].length + match[2].length);
+          return new Warning(token, 'Unknown parameter type: ' + t, match[1].length + match[2].length);
 
-        return new ParamToken(match[1], match[2], paramType, match[4], paramValue);
+        return token;
       }
     }
 
@@ -195,14 +209,17 @@ export namespace blk
   {
     static matcher =
     {
-      re: /^(\s*)include(?:\s*)["']([^'"]+)["']/g,
-      process: (scanner: Scanner, match: RegExpExecArray) => new IncludeToken(match[1], match[2])
+      re: /^(\s*)include(\s*)(["']?(?:[^'"\r\n]+)["']?)/g,
+      process: (scanner: Scanner, match: RegExpExecArray) => new IncludeToken(match[1], match[2], match[3])
     }
 
-    constructor(indent: string, public path: string)
+    constructor(indent: string, public ws: string, public path: string)
     {
       super(indent, TokenType.Include);
     }
+
+    get wsOffset() { return this.offset + this.indent.length + 7; }
+    get pathOffset() { return this.wsOffset + this.ws.length; }
   }
 
   @Matcher
@@ -371,6 +388,12 @@ export namespace blk
         this.edits.push(vscode.TextEdit.replace(range, replaceWith));
     }
 
+    addInsert(document: vscode.TextDocument, at: number, text: string)
+    {
+      if (!this.onlyValidate)
+        this.edits.push(vscode.TextEdit.insert(document.positionAt(at), text));
+    }
+
     provideDocumentRangeFormattingEdits(document: vscode.TextDocument, range: vscode.Range, options: vscode.FormattingOptions, token: vscode.CancellationToken): vscode.TextEdit[] | Thenable<vscode.TextEdit[]>
     {
       this.edits = [];
@@ -402,7 +425,7 @@ export namespace blk
           let block = <BlockToken>curToken;
           blockTokens.push(block);
 
-          if (!block.skipFormatting)
+          // if (!block.skipFormatting)
           {
             if (block.ws != ' ')
               this.addEdit(document, block.wsOffset, block.ws.length, ' ');
@@ -411,6 +434,14 @@ export namespace blk
             if (!isFirstToken)
             {
               let newIndent = "\n".repeat(newLineCount) + indent;
+              if (block.comment !== null)
+              {
+                newIndent += block.comment + "\n" + indent;
+
+                let p = block.name.indexOf('//');
+                let n = scanner.trimWS(block.name.substring(0, p));
+                this.addEdit(document, block.nameOffset, block.name.length, n);
+              }
               if (newIndent !== block.indent)
                 this.addEdit(document, block.offset, block.indent.length, newIndent);
             }
@@ -483,6 +514,20 @@ export namespace blk
           let indent = '  '.repeat(level);
           if (!isFirstToken)
             this.addEdit(document, include.offset, include.indent.length, "\n".repeat(newLineCount) + indent);
+
+          let p = scanner.trimWS(include.path);
+          if (p[0] === "'")
+            this.addEdit(document, include.pathOffset, 1, '"');
+          else if (p[0] != '"')
+            this.addInsert(document, include.pathOffset, '"');
+
+          if (p[p.length - 1] === "'")
+            this.addEdit(document, include.pathOffset + include.path.length - 1, 1, '"');
+          else if (p[p.length - 1] != '"')
+            this.addInsert(document, include.pathOffset + include.path.length, '"');
+
+          if (include.ws !== ' ')
+            this.addEdit(document, include.wsOffset, include.ws.length, ' ');
         }
         else if (curToken instanceof CommentToken)
         {

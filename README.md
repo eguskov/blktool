@@ -29,3 +29,7 @@ Information about errors
 ### 0.1.5
 
 More advance formatting
+
+### 0.1.6
+
+PEG.js formatting

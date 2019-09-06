@@ -130,7 +130,7 @@ RealNumber "RealNumber" = [0-9\.\-]+ { return text(); }
 IntNumber "IntNumber" = [0-9\-]+ { return text(); }
 Char = .
 _ "Whitespace" = [ \r\n\t]* { return null; }
-Spaces "Spaces" = [ ]+ { return null; }
+Spaces "Spaces" = [ \t]+ { return null; }
 
 EOL "EndOfLine" = [\r\n] { return "EOL"; }
 EOP "EndOfParam" = (Spaces* (";" / &"//" / &"/*" / &"}" / EOL)) / EOF

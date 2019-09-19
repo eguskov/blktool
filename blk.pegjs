@@ -18,9 +18,14 @@ DataBlock = blk:DataBlockElements { return blockContent('', location(), blk); }
 
 DataBlockElements = head:DataBlockElement tail:(DataBlockElement)* { return notNull([head].concat(tail)); }
 DataBlockElement = Block / Param / Include / Comment / EmptyLine / Spaces
-Block "Block" = name:Name _ "{" inner: DataBlockElements* "}"
+Block "Block" = name:Name _ c:Comment? _ "{" inner: DataBlockElements* "}"
 {
   var content = notNull(inner)[0];
+  if (c) {
+    name += ' /* ';
+    name += c.value.value.replace(/^\/\//, '').replace(/^\/\*/, '').replace(/\*\/$/, '').replace(/(?:^\s+)|(?:\s+$)/, '');
+    name += ' */';
+  }
   return {
     '_type': 'block',
     value: blockContent(name, location(), content)
@@ -109,12 +114,13 @@ Comment "Comment" = indent:Indent c:(CommentLine / CommentBlock) { return {
     value: {
       location: location(),
       indent: indent,
-      value: c
+      value: c.value,
+      format: c.format
     }
   };
 }
-CommentLine "CommentLine" = "//" (!EOL Char)* { return text(); }
-CommentBlock "CommentBlock" = "/*" (!"*/" Char)* "*/" { return text(); }
+CommentLine "CommentLine" = "//" (!EOL Char)* { return { format: 'line', value: text() }; }
+CommentBlock "CommentBlock" = "/*" (!"*/" Char)* "*/" { return { format: 'block', value: text() }; }
 EmptyLine "Empty line" = [ \t]* EOL { return { '_type': 'empty line', value: { location: location() } }; }
 
 Strings "Strings" = QuotedString / UnquotedString / EmptyString

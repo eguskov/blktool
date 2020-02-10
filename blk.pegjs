@@ -32,7 +32,7 @@ Block "Block" = name:Name _ c:Comment? _ "{" inner: DataBlockElements* "}"
   };
 }
 
-Include "Include" = "include" _ value:Strings ((Spaces* &"}") / EOL / EOF) { return {
+Include "Include" = "include" _ value:Strings { return {
     '_type': 'include',
     value: {
       location: location(),
@@ -42,7 +42,7 @@ Include "Include" = "include" _ value:Strings ((Spaces* &"}") / EOL / EOF) { ret
 }
 
 // Use EOP to enforce ; at the end of param value
-Param "Param" = indent:Indent name:Name value:TypeWithValue EOPR { return {
+Param "Param" = indent:Indent name:Name _ value:TypeWithValue EOPR { return {
     '_type': 'param',
     value: {
       location: location(),
@@ -58,7 +58,7 @@ Value "Value of Param" = Strings
 Name "Name of Param or Block" = NameString / '"' n:String '"' { return '"'+n+'"'; }
 NameString = [a-zA-Z0-9_\.]+ { return text(); }
 
-TypeWithValue = ":" value:(
+TypeWithValue = ":" _ value:(
   /*
   StringValue /
   RealValue /

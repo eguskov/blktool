@@ -2,7 +2,7 @@
   "name": "blktool",
   "displayName": "BlkTool",
   "description": "Blk tools",
-  "version": "0.1.10",
+  "version": "0.1.12",
   "publisher": "eguskov",
   "engines": {
     "vscode": "^1.5.0"
@@ -83,8 +83,18 @@
       "properties": {
         "blktool.root": {
           "type": "string",
-          "default": "D:\\dagor2\\skyquake",
+          "default": "D:\\dagor\\skyquake",
           "description": "Skyquake root"
+        },
+        "blktool.mountPoints": {
+          "type": "object",
+          "description": "Mount points. Example: {\"%gameBase\": \"D:\\dagor\\skyquake\\prog\\gameBase\\gamebase\"}",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {
+            "%gameBase": "D:\\dagor\\skyquake\\prog\\gameBase\\gamebase"
+          }
         }
       }
     }
@@ -99,7 +109,6 @@
     "@types/mocha": "^2.2.32",
     "@types/node": "^6.14.9",
     "mocha": "^2.3.3",
-    "typescript": "^2.0.3",
     "vscode": "^1.0.0"
   },
   "dependencies": {

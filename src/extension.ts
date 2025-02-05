@@ -6,6 +6,7 @@ import * as child_process from 'child_process';
 // import { blk } from './blk';
 import { blk } from './blk-pegjs';
 
+const g_mount_point_include_pattern = new RegExp("(?:\\binclude\\b)(?:\\s+)[\"']%(.*)[\"']", 'gi');
 const g_absolute_include_pattern = new RegExp("(?:\\binclude\\b)(?:\\s+)[\"']#(.*)[\"']", 'gi');
 const g_relative_include_pattern = new RegExp("(?:\\binclude\\b)(?:\\s+)[\"']([^#].*)[\"']", 'gi');
 const g_include_in_string_pattern = new RegExp("[\"'](.*\.blk)[\"']", 'gi');
@@ -87,6 +88,14 @@ function hasInclude(document: vscode.TextDocument, include_name: string)
 
 function getFilenameFromInclude(text: string)
 {
+  let mpMatch = g_mount_point_include_pattern.exec(text);
+  g_mount_point_include_pattern.lastIndex = 0;
+  if (mpMatch)
+  {
+    let filePath = mpMatch[1].substring(1);
+    return getFilename(filePath);
+  }
+
   let absMatch = g_absolute_include_pattern.exec(text);
   g_absolute_include_pattern.lastIndex = 0;
   if (absMatch)
@@ -114,6 +123,27 @@ function getFullPathFromInclude(text: string, root_path: string)
 {
   if (!text)
     return null;
+
+  let mpMatch = g_mount_point_include_pattern.exec(text);
+  g_mount_point_include_pattern.lastIndex = 0;
+  if (mpMatch)
+  {
+    let conf = vscode.workspace.getConfiguration("blktool");
+    let mountPoints = conf.get<{ [key: string]: string }>('mountPoints');
+
+    if (!mountPoints) {
+      return null;
+    }
+
+    let pathParts = mpMatch[1].replace(/\\/g, '/').split('/');
+    let mpName = pathParts[0];
+    let mpPath = mountPoints['%' + mpName];
+    if (!mpPath) {
+      return null;
+    }
+
+    return path.normalize(path.join(mpPath, pathParts.slice(1).join('/')));
+  }
 
   let absMatch = g_absolute_include_pattern.exec(text);
   g_absolute_include_pattern.lastIndex = 0;

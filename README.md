@@ -33,3 +33,7 @@ More advance formatting
 ### 0.1.6
 
 PEG.js formatting
+
+### 0.1.12
+
+Mount points support

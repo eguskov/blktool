@@ -1,3 +1,4 @@
+.log
 out
 node_modules
 *.secret

@@ -42,3 +42,7 @@ Mount points support
 
 Add blktool.searchDir: [] to settings to search relative BLK
 paths according to the list
+
+### 0.1.14
+
+Grammar: Allow '-' in param name

@@ -56,7 +56,7 @@ Indent = [ \t]* { return location(); }
 
 Value "Value of Param" = Strings
 Name "Name of Param or Block" = NameString / '"' n:String '"' { return '"'+n+'"'; }
-NameString = [a-zA-Z0-9_\.]+ { return text(); }
+NameString = [a-zA-Z0-9_\.\-]+ { return text(); }
 
 TypeWithValue = ":" _ value:(
   /*

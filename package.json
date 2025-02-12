@@ -2,7 +2,7 @@
   "name": "blktool",
   "displayName": "BlkTool",
   "description": "Blk tools",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "publisher": "eguskov",
   "engines": {
     "vscode": "^1.5.0"
@@ -85,6 +85,16 @@
           "type": "string",
           "default": "D:\\dagor\\skyquake",
           "description": "Skyquake root"
+        },
+        "blktool.searchDirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "D:\\dagor\\skyquake\\prog\\gameBase\\gamebase"
+          ],
+          "description": "Search BLK includes in these directories"
         },
         "blktool.mountPoints": {
           "type": "object",

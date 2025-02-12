@@ -2,6 +2,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as child_process from 'child_process';
+import * as fs from 'fs';
 
 // import { blk } from './blk';
 import { blk } from './blk-pegjs';
@@ -165,7 +166,26 @@ function getFullPathFromInclude(text: string, root_path: string)
   if (strMatch)
   {
     let conf = vscode.workspace.getConfiguration("blktool");
-    return path.normalize(path.join(conf.get('root'), 'develop', 'gameBase', strMatch[1]));
+
+    let rootPath = path.normalize(path.join(conf.get('root'), 'develop', 'gameBase', strMatch[1]))
+    logLine(`Checking: ${rootPath}`);
+
+    if (fs.existsSync(rootPath))
+    {
+      return rootPath;
+    }
+
+    let searchDirs: Array<string> = conf.get('searchDirs');
+    for (let dir of searchDirs)
+    {
+      let fullPath = path.normalize(path.join(dir, strMatch[1]));
+      logLine(`Checking: ${fullPath}`);
+
+      if (fs.existsSync(fullPath))
+      {
+        return fullPath;
+      }
+    }
   }
 
   return null;

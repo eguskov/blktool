@@ -37,3 +37,8 @@ PEG.js formatting
 ### 0.1.12
 
 Mount points support
+
+### 0.1.13
+
+Add blktool.searchDir: [] to settings to search relative BLK
+paths according to the list

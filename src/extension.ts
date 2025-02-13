@@ -370,6 +370,10 @@ function validateBlk(document: vscode.TextDocument)
 
       vscode.commands.executeCommand('workbench.action.problems.focus');
     }
+    else
+    {
+      diagnosticCollection.clear();
+    }
   });
 }
 

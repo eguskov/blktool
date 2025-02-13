@@ -6,6 +6,7 @@ import * as fs from 'fs';
 
 // import { blk } from './blk';
 import { blk } from './blk-pegjs';
+import { log } from 'console';
 
 const g_mount_point_include_pattern = new RegExp("(?:\\binclude\\b)(?:\\s+)[\"']%(.*)[\"']", 'gi');
 const g_absolute_include_pattern = new RegExp("(?:\\binclude\\b)(?:\\s+)[\"']#(.*)[\"']", 'gi');
@@ -301,6 +302,77 @@ function findIncludeInFiles(filename: string, root_path: string)
 
 let diagnosticCollection: vscode.DiagnosticCollection = null;
 
+function parseBLKErrors(document: vscode.TextDocument, data: string)
+{
+  var errors = []
+  var errorsByLine = {}
+
+  let pushError = function (message: string, lineNum: number)
+  {
+    if (errorsByLine[lineNum])
+      return;
+
+    errorsByLine[lineNum] = true;
+
+    let diagnostic : vscode.Diagnostic = {
+      severity: vscode.DiagnosticSeverity.Error,
+      range: new vscode.Range(lineNum, 0, lineNum, document.lineAt(lineNum).text.length),
+      message: message,
+      source: 'blk',
+      code: 0
+    }
+    errors.push(diagnostic);
+  };
+
+  data.split('\n').forEach(line => {
+    if (line.startsWith('ERR:'))
+    {
+      // BLK error '%s',%d: %s
+      let match = line.match(/ERR: BLK error '(?:.*)',(\d+): (.*)/);
+      if (match)
+        pushError(match[2], parseInt(match[1]) - 1);
+
+      // BLK invalid %s (type %s) value in line %d of '%s': '%s'
+      match = line.match(/ERR: BLK invalid (?:.*) \(type (?:.*)\) value in line (\d+) of '(?:.*)': '(?:.*)'/);
+      if (match)
+        pushError(match[0].substring('ERR: '.length), parseInt(match[1]) - 1);
+    }
+  });
+
+  return errors;
+}
+
+function validateBlk(document: vscode.TextDocument)
+{
+  if (!diagnosticCollection)
+    return;
+
+  let filename = getFilename(document.fileName);
+
+  if (!filename)
+    return;
+
+  let conf = vscode.workspace.getConfiguration("blktool");
+  let mountPoints = conf.get<{ [key: string]: string }>('mountPoints');
+  let extDir = vscode.extensions.getExtension("eguskov.blktool").extensionPath;
+  let fileDir = path.dirname(document.fileName);
+  var mountPointsCmd = [];
+  for (let key in mountPoints)
+  {
+    mountPointsCmd.push('-mount:' + key.replace('%', '') + '=' + mountPoints[key]);
+  }
+  
+  child_process.execFile(path.join(extDir, 'binBlk.exe'), [path.basename(document.fileName), '-', '-t', '-h', '-v', '-root:' + conf.get('root'), '-final'].concat(mountPointsCmd), { cwd: fileDir }, function (err, data)
+  {
+    if (err)
+    {
+      diagnosticCollection.set(document.uri, parseBLKErrors(document, data));
+
+      vscode.commands.executeCommand('workbench.action.problems.focus');
+    }
+  });
+}
+
 export function activate(context: vscode.ExtensionContext)
 {
   let out = vscode.window.createOutputChannel("BLKTool");
@@ -321,6 +393,20 @@ export function activate(context: vscode.ExtensionContext)
       decreaseIndentPattern: /^\s*[}\]],?\s*$/
     }
   });
+
+  context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(document => {
+    if (document.languageId === 'blk')
+    {
+      validateBlk(document);
+    }
+  }));
+
+  context.subscriptions.push(vscode.workspace.onDidOpenTextDocument(document => {
+    if (document.languageId === 'blk')
+    {
+      validateBlk(document);
+    }
+  }));
 
   context.subscriptions.push(vscode.languages.registerDocumentRangeFormattingEditProvider('blk', new blk.RangeFormattingEditProvider));
 
@@ -357,11 +443,29 @@ export function activate(context: vscode.ExtensionContext)
     if (filename)
     {
       let conf = vscode.workspace.getConfiguration("blktool");
+      let mountPoints = conf.get<{ [key: string]: string }>('mountPoints');
       let extDir = vscode.extensions.getExtension("eguskov.blktool").extensionPath;
-      child_process.execFile('blk.exe', ['-blk:' + document.fileName, '-root:' + conf.get('root')], { cwd: extDir }, function (err, data)
+      let fileDir = path.dirname(document.fileName);
+      var mountPointsCmd = [];
+      for (let key in mountPoints)
       {
-        data = data.replace(/^[\r\n]/gm, '');
-        vscode.workspace.openTextDocument(document.uri.with({ scheme: 'untitled', path: path.join(getPath(document.uri), filename + '-parsed.blk') }))
+        mountPointsCmd.push('-mount:' + key.replace('%', '') + '=' + mountPoints[key]);
+      }
+
+      diagnosticCollection.clear();
+      
+      child_process.execFile(path.join(extDir, 'binBlk.exe'), [path.basename(document.fileName), '-', '-t', '-root:' + conf.get('root'), '-final'].concat(mountPointsCmd), { cwd: fileDir }, function (err, data)
+      {
+        if (err)
+        {
+          vscode.window.showErrorMessage(data);
+
+          diagnosticCollection.set(document.uri, parseBLKErrors(document, data));
+
+          vscode.commands.executeCommand('workbench.action.problems.focus');
+        }
+
+        vscode.workspace.openTextDocument(document.uri.with({ scheme: 'untitled', path: path.join(getPath(document.uri), `[final: ${filename}]`) }))
           .then(value =>
           {
             vscode.window.showTextDocument(value, vscode.ViewColumn.Two, false).then(editor => editor.edit(builder => builder.insert(editor.selection.start, data)))

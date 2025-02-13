@@ -46,3 +46,9 @@ paths according to the list
 ### 0.1.14
 
 Grammar: Allow '-' in param name
+
+### 0.1.15
+
+BLK parser has been updated
+BLK Validation on open and save
+Command 'BLK: Show result' now supports mount points

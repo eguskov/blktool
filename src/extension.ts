@@ -228,7 +228,7 @@ export function activate(context: vscode.ExtensionContext)
       return;
 
     let document = editor.document;
-    if (!document || !document.fileName.endsWith('.blk'))
+    if (!document || document.languageId !== 'blk')
       return;
 
     let text = document.lineAt(editor.selection.start).text;
@@ -249,42 +249,45 @@ export function activate(context: vscode.ExtensionContext)
     if (!document || !document.fileName.endsWith('.blk'))
       return;
 
-    let filename = getFilename(document.fileName);
-
-    if (filename)
+    document.save().then(() =>
     {
-      let conf = vscode.workspace.getConfiguration("blktool");
-      let mountPoints = conf.get<{ [key: string]: string }>('mountPoints');
-      let extDir = vscode.extensions.getExtension("eguskov.blktool").extensionPath;
-      let fileDir = path.dirname(document.fileName);
-      var mountPointsCmd = [];
-      for (let key in mountPoints)
-      {
-        mountPointsCmd.push('-mount:' + key.replace('%', '') + '=' + mountPoints[key]);
-      }
+      let filename = getFilename(document.fileName);
 
-      diagnosticCollection.clear();
-      
-      child_process.execFile(path.join(extDir, 'binBlk.exe'), [path.basename(document.fileName), '-', '-t', '-root:' + conf.get('root'), '-final'].concat(mountPointsCmd), { cwd: fileDir }, function (err, data)
+      if (filename)
       {
-        if (err)
+        let conf = vscode.workspace.getConfiguration("blktool");
+        let mountPoints = conf.get<{ [key: string]: string }>('mountPoints');
+        let extDir = vscode.extensions.getExtension("eguskov.blktool").extensionPath;
+        let fileDir = path.dirname(document.fileName);
+        var mountPointsCmd = [];
+        for (let key in mountPoints)
         {
-          vscode.window.showErrorMessage(data);
-
-          diagnosticCollection.set(document.uri, parseBLKErrors(document, data));
-
-          vscode.commands.executeCommand('workbench.action.problems.focus');
+          mountPointsCmd.push('-mount:' + key.replace('%', '') + '=' + mountPoints[key]);
         }
 
-        vscode.workspace.openTextDocument(document.uri.with({ scheme: 'untitled', path: path.join(getPath(document.uri), `[final: ${filename}]`) }))
-          .then(value =>
+        diagnosticCollection.clear();
+        
+        child_process.execFile(path.join(extDir, 'binBlk.exe'), [path.basename(document.fileName), '-', '-t', '-root:' + conf.get('root'), '-final'].concat(mountPointsCmd), { cwd: fileDir }, function (err, data)
+        {
+          if (err)
           {
-            vscode.window.showTextDocument(value, vscode.ViewColumn.Two, false).then(editor => editor.edit(builder => builder.insert(editor.selection.start, data)))
-          }, onFileOpenError);
-      });
-    }
-    else
-      vscode.window.showErrorMessage('Include not found');
+            vscode.window.showErrorMessage(data);
+
+            diagnosticCollection.set(document.uri, parseBLKErrors(document, data));
+
+            vscode.commands.executeCommand('workbench.action.problems.focus');
+          }
+          else
+          {
+            vscode.workspace.openTextDocument({language: 'blk'}).then(value => {
+              vscode.window.showTextDocument(value, vscode.ViewColumn.Two, false).then(editor => editor.edit(builder => builder.insert(editor.selection.start, data)))
+            });
+          }
+        });
+      }
+      else
+        vscode.window.showErrorMessage('Include not found');
+    });
 
   }));
 }

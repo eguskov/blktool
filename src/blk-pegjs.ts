@@ -116,6 +116,10 @@ export namespace blk
           return block.name;
         }
 
+        function removeTrailingWhitespace(str: string) {
+          return str.split('\n').map(v => v.replace(/\s+$/, '')).join('\n');
+        }
+
         let replaceBlock = function (block, level) {
           let lines = [];
           for (let param of block.params) {
@@ -173,7 +177,7 @@ export namespace blk
             param: v => `${isOneLine ? '' : indent}${formatParamName(v)}:${v.value[1]} = ${formatParamValue(v)}`,
             block: v => `${indent}${replaceBlock(v, level + 1)}`,
             include: v => `${indent}include "${v.value}"`,
-            comment: (v, f) => `${f ? ' ' : indent}${v.value}`,
+            comment: (v, f) => `${f ? ' ' : indent}${removeTrailingWhitespace(v.value)}`,
             'empty line': () => null
           }
           

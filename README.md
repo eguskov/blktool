@@ -52,3 +52,7 @@ Grammar: Allow '-' in param name
 BLK parser has been updated
 BLK Validation on open and save
 Command 'BLK: Show result' now supports mount points
+
+### 0.1.19
+
+Formatting: Remove trailing whitesapces from comments

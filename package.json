@@ -2,10 +2,10 @@
   "name": "blktool",
   "displayName": "BlkTool",
   "description": "Blk tools",
-  "version": "0.1.19",
+  "version": "0.1.20",
   "publisher": "eguskov",
   "engines": {
-    "vscode": "^1.10.0"
+    "vscode": "^1.60.0"
   },
   "repository": {
     "type": "git",
@@ -27,6 +27,10 @@
       {
         "command": "extension.blktool.showResultFile",
         "title": "BLK: Show result (Resolve all includes etc.)"
+      },
+      {
+        "command": "extension.blktool.showDependencyTree",
+        "title": "BLK: Show dependency tree"
       }
     ],
     "keybindings": [
@@ -46,6 +50,11 @@
         {
           "when": "resourceLangId == blk",
           "command": "extension.blktool.showResultFile",
+          "group": "navigation"
+        },
+        {
+          "when": "resourceLangId == blk",
+          "command": "extension.blktool.showDependencyTree",
           "group": "navigation"
         }
       ]
@@ -76,8 +85,24 @@
             "type": "string"
           },
           "default": {
-            "%gameBase": "D:\\dagor\\skyquake\\prog\\gameBase\\gamebase"
+            "%gameBase": "D:/dagor/skyquake/prog/gamebase/gamebase",
+            "%danetlibs": "D:/dagor/prog/daNetGameLibs",
+            "%wtlibs": "D:/dagor/skyquake/prog/wtlibs"
           }
+        },
+        "blktool.dependencyTree.readParams": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "import",
+            "imports/import_record/file",
+
+            "weapon_presets/preset/blk",
+            "WeaponSlots/WeaponSlot/WeaponPreset/Weapon/blk"
+          ],
+          "description": "Read additional params from BLK as reference to another BLK"
         }
       }
     }

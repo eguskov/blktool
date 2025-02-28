@@ -91,6 +91,29 @@ function getFullPathFromInclude(text: string, root_path: string)
       return rootPath;
     }
 
+    if (strMatch[1].startsWith('%'))
+    {
+      logLine(`Checking: ${strMatch[1]}`);
+
+      let mountPoints = conf.get<{ [key: string]: string }>('mountPoints');
+      if (!mountPoints)
+      {
+        return null;
+      }
+
+      let pathParts = strMatch[1].replace(/\\/g, '/').split('/');
+      let mpName = pathParts[0];
+      let mpPath = mountPoints['%' + mpName];
+      if (!mpPath) {
+        mpPath = mountPoints[mpName];
+      }
+      if (!mpPath) {
+        return null;
+      }
+
+      return path.normalize(path.join(mpPath, pathParts.slice(1).join('/')));
+    }
+
     let searchDirs: Array<string> = conf.get('searchDirs');
     for (let dir of searchDirs)
     {
@@ -187,7 +210,8 @@ function validateBlk(document: vscode.TextDocument)
 export function activate(context: vscode.ExtensionContext)
 {
   let out = vscode.window.createOutputChannel("BLKTool");
-  out.show();
+  out.show(true);
+
   g_out = out;
 
   logLine('Welcome to BLK Tool');
@@ -290,8 +314,375 @@ export function activate(context: vscode.ExtensionContext)
     });
 
   }));
+
+  let disposable = vscode.commands.registerCommand('extension.blktool.showDependencyTree', async function () {
+    // Create and show a new webview panel
+    const panel = vscode.window.createWebviewPanel(
+      'dependencyTree', // Identifies the type of the webview. Used internally
+      'Dependency Tree', // Title of the panel displayed to the user
+      vscode.ViewColumn.Two, // Editor column to show the new webview panel in.
+      {
+        enableScripts: true,  // Enable JavaScript in the webview
+        retainContextWhenHidden: true,
+      }
+    );
+    // Set the HTML content of the panel
+    panel.webview.html = getWebviewContent();
+
+    let editor = vscode.window.activeTextEditor;
+    if (!editor)
+      return;
+
+    let document = editor.document;
+    if (!document || !document.fileName.endsWith('.blk'))
+      return;
+
+    let includes = await blk.getIncludes(document, getFullPathFromInclude);
+
+    // Send the data to the Webview.
+    panel.webview.postMessage({ command: 'setData', data: includes });
+
+    panel.webview.onDidReceiveMessage(message => {
+      console.log({message});
+      // console.log({data: message.data});
+      switch (message.command) {
+        case 'nodeClicked':
+          // vscode.window.showInformationMessage(`Node clicked: ${message.data.name}`);
+          break;
+        case 'openBLK':
+          vscode.workspace.openTextDocument(message.data.value).then(value => vscode.window.showTextDocument(value, vscode.ViewColumn.Two, false), onFileOpenError);
+          break;
+      }
+    });
+  });
+
+  context.subscriptions.push(disposable);
 }
 
 export function deactivate()
 {
+}
+
+function getWebviewContent(): string
+{
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dependency Tree</title>
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background-color: #1e1e1e;
+      color: #eee;
+      font-family: sans-serif;
+    }
+    /* Container that holds the search box and chart */
+    #container {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+      min-width: 300px;
+      min-height: 300px;
+    }
+    /* Search box container at the top */
+    #search-container {
+      padding: 5px;
+      background-color: #333;
+    }
+    #searchInput {
+      width: 70%;
+      padding: 5px;
+      border: none;
+      border-radius: 3px;
+    }
+    #searchBtn {
+      padding: 5px 10px;
+      margin-left: 5px;
+      border: none;
+      border-radius: 3px;
+      background-color: #00adee;
+      color: #fff;
+      cursor: pointer;
+    }
+    /* Chart container fills the rest of the space and is scrollable */
+    #chart {
+      flex: 1;
+      overflow: auto;
+      background-color: #1e1e1e;
+    }
+    .node {
+      cursor: pointer;
+    }
+    .node circle {
+      fill: #4c4c4c;
+      stroke: #00adee;
+      stroke-width: 1.5px;
+    }
+    .node text {
+      font: 12px sans-serif;
+      fill: #eee;
+    }
+    /* Highlight class for matched nodes */
+    .highlight {
+      stroke: #ff0000 !important;
+      stroke-width: 3px;
+    }
+    .link {
+      fill: none;
+      stroke: #888;
+      stroke-width: 1.5px;
+    }
+    /* Context menu styling */
+    .context-menu {
+      position: absolute;
+      background: #333;
+      color: white;
+      border-radius: 5px;
+      display: none;
+      box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.5);
+      font-size: 14px;
+      z-index: 1000;
+      min-width: 120px;
+    }
+    .context-menu-item {
+      padding: 8px;
+      cursor: pointer;
+      border-bottom: 1px solid #444;
+    }
+    .context-menu-item:hover {
+      background: #555;
+    }
+    .context-menu-item:last-child {
+      border-bottom: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="context-menu" class="context-menu">
+    <div class="context-menu-item" id="toggle-node">Toggle</div>
+    <div class="context-menu-item" id="open-blk">Open BLK</div>
+  </div>
+  <div id="container">
+    <div id="search-container">
+      <input id="searchInput" type="text" placeholder="Search nodes..." />
+      <button id="searchBtn">Search</button>
+    </div>
+    <div id="chart"></div>
+  </div>
+  <!-- Load D3.js -->
+  <script src="https://d3js.org/d3.v5.min.js"></script>
+  <script>
+    const vscode = acquireVsCodeApi();
+
+    // Set up margin and dynamic dimensions.
+    const margin = { top: 20, right: 90, bottom: 30, left: 90 };
+    const container = document.getElementById("chart");
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+    const width = containerWidth - margin.left - margin.right;
+    const height = containerHeight - margin.top - margin.bottom;
+
+    // Create an SVG element that fills the container.
+    const svg = d3.select("#chart").append("svg")
+      .attr("width", containerWidth)
+      .attr("height", containerHeight)
+      .call(d3.zoom().scaleExtent([0.1, 3]).on("zoom", zoomed));
+
+    // Group that will be zoomed and panned.
+    const g = svg.append("g")
+      .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+    function zoomed() {
+      g.attr("transform", d3.event.transform);
+    }
+
+    let i = 0,
+        duration = 750,
+        root;
+    const levelSeparation = 250; // Increased separation between levels.
+    const treemap = d3.cluster().size([height, width]);
+
+    document.addEventListener("click", () => {
+      document.getElementById("context-menu").style.display = "none";
+    });
+
+    function showContextMenu(d) {
+      selectedNode = d;        // Store selected node for actions
+
+      const menu = document.getElementById("context-menu");
+      menu.style.display = "block";
+      menu.style.left = event.pageX + "px";
+      menu.style.top = event.pageY + "px";
+    }
+
+    function toggleNode() {
+      console.log({selectedNode});
+      if (selectedNode) {
+        if (selectedNode.children) {
+          selectedNode._children = selectedNode.children;
+          selectedNode.children = null;
+        } else {
+          selectedNode.children = selectedNode._children;
+          selectedNode._children = null;
+        }
+        update(root);
+      }
+    }
+
+    function openBLK() {
+      if (selectedNode) {
+        vscode.postMessage({ command: "openBLK", data: selectedNode.data });
+      }
+    }
+
+    document.getElementById("toggle-node").addEventListener("click", toggleNode);
+    document.getElementById("open-blk").addEventListener("click", openBLK);
+
+    function update(source) {
+      const treeData = treemap(root),
+            nodes = treeData.descendants(),
+            links = treeData.descendants().slice(1);
+
+      // Set horizontal spacing based on depth.
+      nodes.forEach(d => { d.y = d.depth * levelSeparation; });
+
+      // --- Nodes ---
+      const node = g.selectAll("g.node")
+        .data(nodes, d => d.id || (d.id = ++i));
+
+      const nodeEnter = node.enter().append("g")
+        .attr("class", "node")
+        .attr("transform", d => "translate(" + source.y0 + "," + source.x0 + ")")
+        .on("click", function(d) {
+          // Toggle children on click.
+          if (d.children) {
+            d._children = d.children;
+            d.children = null;
+          } else {
+            d.children = d._children;
+            d._children = null;
+          }
+          // Update the entire tree (using the root) to refresh positions.
+          update(root);
+          // Send a message to the extension with the clicked node's data.
+          vscode.postMessage({ command: "nodeClicked", data: d.data });
+          // TODO: Add your custom code here.
+        })
+        .on("contextmenu", function(d) {
+          d3.event.preventDefault(); // Prevent default right-click menu
+          showContextMenu(d); // Pass the correct event
+        });
+
+      nodeEnter.append("circle")
+        .attr("class", "node")
+        .attr("r", 1e-6)
+        .style("fill", d => d._children ? "#00adee" : "#4c4c4c");
+
+      nodeEnter.append("text")
+        .attr("dy", ".35em")
+        .attr("x", d => d.children || d._children ? -13 : 13)
+        .attr("text-anchor", d => d.children || d._children ? "end" : "start")
+        .text(d => d.data.name);
+
+      const nodeUpdate = nodeEnter.merge(node);
+
+      nodeUpdate.transition()
+        .duration(duration)
+        .attr("transform", d => "translate(" + d.y + "," + d.x + ")");
+
+      nodeUpdate.select("circle.node")
+        .attr("r", 10)
+        .style("fill", d => d._children ? "#00adee" : "#4c4c4c")
+        .attr("cursor", "pointer");
+
+      const nodeExit = node.exit().transition()
+          .duration(duration)
+          .attr("transform", d => "translate(" + source.y + "," + source.x + ")")
+          .remove();
+
+      nodeExit.select("circle")
+        .attr("r", 1e-6);
+
+      nodeExit.select("text")
+        .style("fill-opacity", 1e-6);
+
+      // --- Links ---
+      const link = g.selectAll("path.link")
+        .data(links, d => d.id);
+
+      const linkEnter = link.enter().insert("path", "g")
+        .attr("class", "link")
+        .attr("d", d => {
+          const o = { x: source.x0, y: source.y0 };
+          return diagonal(o, o);
+        });
+
+      const linkUpdate = linkEnter.merge(link);
+
+      linkUpdate.transition()
+        .duration(duration)
+        .attr("d", d => diagonal(d, d.parent));
+
+      const linkExit = link.exit().transition()
+          .duration(duration)
+          .attr("d", d => {
+            const o = { x: source.x, y: source.y };
+            return diagonal(o, o);
+          })
+          .remove();
+
+      nodes.forEach(d => {
+        d.x0 = d.x;
+        d.y0 = d.y;
+      });
+
+      function diagonal(s, d) {
+        return \`M \${s.y} \${s.x}
+          C \${(s.y + d.y) / 2} \${s.x},
+            \${(s.y + d.y) / 2} \${d.x},
+            \${d.y} \${d.x}\`;
+      }
+    }
+
+    function updateTree(data) {
+      root = d3.hierarchy(data, d => d.children);
+      root.x0 = height / 2;
+      root.y0 = 0;
+      update(root);
+    }
+
+    // --- Search functionality ---
+    function searchNodes() {
+      const searchText = document.getElementById("searchInput").value.toLowerCase();
+      // Loop through each node and add/remove highlight class.
+      g.selectAll("g.node").each(function(d) {
+        const circle = d3.select(this).select("circle");
+        if (d.data.name.toLowerCase().includes(searchText) && searchText !== "") {
+          circle.classed("highlight", true);
+        } else {
+          circle.classed("highlight", false);
+        }
+      });
+    }
+
+    // Attach event listeners to the search box and button.
+    document.getElementById("searchInput").addEventListener("keyup", searchNodes);
+    document.getElementById("searchBtn").addEventListener("click", searchNodes);
+
+    // Listen for messages from the extension.
+    window.addEventListener("message", event => {
+      const message = event.data;
+      if (message.command === "setData") {
+        console.log({data: message.data});
+        updateTree(message.data);
+      }
+    });
+  </script>
+</body>
+</html>`;
 }

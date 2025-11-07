@@ -56,3 +56,7 @@ Command 'BLK: Show result' now supports mount points
 ### 0.1.19
 
 Formatting: Remove trailing whitesapces from comments
+
+### 0.1.21
+
+Add formatting settings

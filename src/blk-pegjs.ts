@@ -165,8 +165,22 @@ export namespace blk
       
       let parser = await getParser();
 
-      const tabSize = 2
-      const indentWith = ' '
+      let conf = vscode.workspace.getConfiguration("blktool");
+      let indentWithSpaces = conf.get<Boolean>('formatting.indentWithSpaces', true);
+      let tabSize = indentWithSpaces ? conf.get<number>('formatting.tabSize', 2) : 1;
+      let indentWith = indentWithSpaces ? ' ' : '\t';
+      let spacesBeforeEqualSign = conf.get<number>('formatting.spacesBeforeEqualSign', 1);
+      let spacesAfterEqualSign = conf.get<number>('formatting.spacesAfterEqualSign', 1);
+      let equalSign = `${' '.repeat(spacesBeforeEqualSign)}=${' '.repeat(spacesAfterEqualSign)}`;
+      let shouldFormatValues = conf.get<Boolean>('formatting.shouldFormatValues', false);
+      let spacesBeforePeriodSign = conf.get<number>('formatting.spacesBeforePeriodSign', 0);
+      let spacesAfterPeriodSign = conf.get<number>('formatting.spacesAfterPeriodSign', 1);
+      let pointDelimeter = `${' '.repeat(spacesBeforePeriodSign)},${' '.repeat(spacesAfterPeriodSign)}`;
+      let blockNameDelimeter = conf.get<string>('formatting.blockNameDelimeter', ' ');
+      let oneLineBlockNameDelimeter = conf.get<string>('formatting.oneLineBlockNameDelimeter', ' ');
+      let oneLineBlockSpacing = conf.get<string>('formatting.oneLineBlockSpacing', ' ');
+      let addOneBlockTailingSemicolon = conf.get<Boolean>('formatting.addOneBlockTailingSemicolon', true);
+      let focreBlocksToBeOneLine = conf.get<Array<string>>('formatting.focreBlocksToBeOneLine', []);
 
       try {
         let blkRoot = parser.parse(fullText);
@@ -201,16 +215,23 @@ export namespace blk
           }
         }.bind(this);
 
-        function formatParamName(param): string {          
+        function formatParamName(param): string {
           if (param.value[0][0] === "@")
             return `"${param.value[0]}"`;
           return param.value[0];
         }
 
         function formatParamValue(param): string {
+          let paramType = param.value[1];
           let paramValue = param.value[2];
-          if (param.value[1] === "t" && paramValue[0] !== "'" && paramValue[0] !== '"')
+          if (paramType === "t" && paramValue[0] !== "'" && paramValue[0] !== '"')
             return `"${paramValue}"`;
+          if (shouldFormatValues) {
+            if (paramType === "m")
+              return paramValue.replace(/\s+/g, '').replace(/(?:\s*)\,(?:\s*)/g, pointDelimeter).replace(/\]\[/g, '] [');
+            if (paramType === "p2" || paramType === "p3" || paramType === "p4" || paramType === "c")
+              return paramValue.replace(/(?:\s*)\,(?:\s*)/g, pointDelimeter);
+          }
           return paramValue;
         }
 
@@ -226,43 +247,41 @@ export namespace blk
 
         let replaceBlock = function (block, level) {
           let lines = [];
-          for (let param of block.params) {
-            if (!lines[param.location.start.line])
-              lines[param.location.start.line] = [];
-            lines[param.location.start.line].push({ type: 'param', value: param });
-          }
-          for (let subBlock of block.blocks) {
-            if (!lines[subBlock.location.start.line])
-              lines[subBlock.location.start.line] = [];
-            lines[subBlock.location.start.line].push({ type: 'block', value: subBlock });
-          }
-          for (let include of block.includes) {
-            if (!lines[include.location.start.line])
-              lines[include.location.start.line] = [];
-            lines[include.location.start.line].push({ type: 'include', value: include });
-          }
-          for (let comment of block.comments) {
-            if (!lines[comment.location.start.line])
-              lines[comment.location.start.line] = [];
-            lines[comment.location.start.line].push({ type: 'comment', value: comment });
-          }
+          
+          let pushToLines = function(arr, type) {
+            for (let item of arr) {
+              let itemLine = item.location.start.line;
+              if (!lines[itemLine])
+                lines[itemLine] = [];
+              lines[itemLine].push({ type: type, value: item });
+            }
+          };
+
+          pushToLines(block.params, 'param');
+          pushToLines(block.blocks, 'block');
+          pushToLines(block.includes, 'include');
+          pushToLines(block.comments, 'comment');
+
           let emptylines = block.emptylines.filter(v => v.location.start.column === 1);
 
+          // Remove repeating empty lines
           let emptylinesCount = 0;
           for (let i = 1; i < emptylines.length; ++i) {
             if (emptylines[i].location.start.line - 1 === emptylines[i - 1].location.start.line) {
               ++emptylinesCount;
             }
             else {
-              for (let j = i - 1; j >= 0 && j > i - emptylinesCount; --j) {
+              for (let j = i - 1; j >= 0 && j > i - 1 - emptylinesCount; --j) {
                 emptylines[j]._remove = true;
               }
               emptylinesCount = 0;
             }
           }
-          for (let j = emptylines.length - 1; j >= 0 && j > emptylines.length - emptylinesCount; --j) {
+          for (let j = emptylines.length - 1; j >= 0 && j > emptylines.length - 1 - emptylinesCount; --j) {
             emptylines[j]._remove = true;
           }
+
+          // Insert empty lines
           for (let emptyline of emptylines.filter(v => v._remove !== true)) {
             const lineNum = emptyline.location.start.line
             if (!lines[lineNum])
@@ -273,12 +292,12 @@ export namespace blk
           const indent = indentWith.repeat(level * tabSize);
           const isRoot = block.name === '';
           const isEmpty = block.params.length <= 0 && block.blocks.length <= 0 && block.includes.length <= 0 && block.comments.length <= 0;
-          const isOneLine = !isRoot && block.blocks.length <= 0 && block.includes.length <= 0  && block.comments.length <= 0 && block.params.length > 0 && block.location.start.line === block.params[0].location.start.line;
+          const isOneLine = focreBlocksToBeOneLine.findIndex(name => name === block.name) >= 0 || (!isRoot && block.blocks.length <= 0 && block.includes.length <= 0  && block.comments.length <= 0 && block.params.length > 0 && block.location.start.line === block.params[0].location.start.line);
           const isMultiLine = !isOneLine && !isEmpty;
           const prevIndent = isOneLine || isEmpty || isRoot ? '' : (indentWith.repeat((level - 1) * tabSize));
 
           const fmt = {
-            param: v => `${isOneLine ? '' : indent}${formatParamName(v)}:${v.value[1]} = ${formatParamValue(v)}`,
+            param: v => `${isOneLine ? '' : indent}${formatParamName(v)}:${v.value[1]}${equalSign}${formatParamValue(v)}`,
             block: v => `${indent}${replaceBlock(v, level + 1)}`,
             include: v => `${indent}include "${v.value}"`,
             comment: (v, f) => `${f ? ' ' : indent}${removeTrailingWhitespace(v.value)}`,
@@ -297,10 +316,50 @@ export namespace blk
             lines = [lines.reduce((res, v) => res.concat(v), [])];
           }
 
+          let fistLine = lines[0];
+          if (fistLine && fistLine.length === 1 && fistLine[0].type === 'empty line') {
+            lines.shift();
+          }
+
+          let lastLine = lines[lines.length - 1];
+          if (lastLine && lastLine.length === 1 && lastLine[0].type === 'empty line') {
+            lines.pop();
+          }
+
+          let hasType = (line, type: string) => {
+            for (let item of line) {
+              if (item.type === type)
+                return true;
+            }
+            return false;
+          }
+
+          for (let i = 0; i < lines.length - 1; ++i) {
+            let line = lines[i];
+            if (hasType(line, 'empty line')) {
+              continue;
+            }
+
+            let nextLine = lines[i + 1];
+
+            let shouldInsertEmptyLine = false;
+            if (hasType(line, 'param') && hasType(nextLine, 'block')) {
+              shouldInsertEmptyLine = true;
+            }
+
+            if (hasType(line, 'block') && hasType(nextLine, 'block')) {
+              shouldInsertEmptyLine = true;
+            }
+
+            if (shouldInsertEmptyLine) {
+              lines.splice(i + 1, 0, [{ type: 'empty line', value: {}}]);
+            }
+          }
+
           for (let line of lines) {
             const isEndWithComment = line.length > 1 && line[line.length - 1].type === 'comment';
             if (isOneLine) {
-              content.push(" ");
+              content.push(oneLineBlockSpacing);
             }
             const str = line.map(v => fmt[v.type](v.value, isEndWithComment)).filter(v => !!v).join(isMultiLine && !isEndWithComment ? "\n" : isOneLine ? "; " : "");
             content.push(str);
@@ -308,14 +367,16 @@ export namespace blk
               content.push("\n");
             }
             else if (isOneLine) {
-              content.push("; ");
+              content.push(addOneBlockTailingSemicolon ? `;${oneLineBlockSpacing}` : oneLineBlockSpacing);
             }
           }
 
           if (isRoot)
             return content.join("");
 
-          return `${formatBlockName(block)} {${content.join("")}${prevIndent}}`;
+          let useDelim = (isOneLine || isEmpty) ? oneLineBlockNameDelimeter : blockNameDelimeter == '\n' ? `${blockNameDelimeter}${prevIndent}` : blockNameDelimeter;
+
+          return `${formatBlockName(block)}${useDelim}{${content.join("")}${prevIndent}}`;
         }.bind(this);
 
         let level = 0;

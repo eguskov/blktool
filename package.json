@@ -2,7 +2,7 @@
   "name": "blktool",
   "displayName": "BlkTool",
   "description": "Blk tools",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "publisher": "eguskov",
   "engines": {
     "vscode": "^1.60.0"
@@ -103,6 +103,75 @@
             "WeaponSlots/WeaponSlot/WeaponPreset/Weapon/blk"
           ],
           "description": "Read additional params from BLK as reference to another BLK"
+        },
+        "blktool.formatting": {
+          "type": "object",
+          "description": "Formatting options",
+          "properties": {
+            "tabSize": {
+              "type": "number",
+              "default": 2,
+              "description": "Number of spaces per indentation level."
+            },
+            "indentWithSpaces": {
+              "type": "boolean",
+              "default": true,
+              "description": "Indent using spaces (true) or tabs (false)."
+            },
+            "spacesBeforeEqualSign": {
+              "type": "number",
+              "default": 1,
+              "description": "Number of spaces before equal sign."
+            },
+            "spacesAfterEqualSign": {
+              "type": "number",
+              "default": 1,
+              "description": "Number of spaces after equal sign."
+            },
+            "shouldFormatValues": {
+              "type": "boolean",
+              "default": false,
+              "description": "Format parameter values (like removing extra spaces)."
+            },
+            "spacesBeforePeriodSign": {
+              "type": "number",
+              "default": 0,
+              "description": "Number of spaces before period sign in p2,p3,p4,c,m parameters."
+            },
+            "spacesAfterPeriodSign": {
+              "type": "number",
+              "default": 1,
+              "description": "Number of spaces after period sign in p2,p3,p4,c,m parameters."
+            },
+            "blockNameDelimeter": {
+              "type": "string",
+              "default": " ",
+              "description": "String to use between block name and opening brace."
+            },
+            "oneLineBlockNameDelimeter": {
+              "type": "string",
+              "default": " ",
+              "description": "String to use between block name and opening brace for one-line blocks."
+            },
+            "oneLineBlockSpacing": {
+              "type": "string",
+              "default": " ",
+              "description": "String to use between closing brace and semicolon for one-line blocks."
+            },
+            "addOneBlockTailingSemicolon": {
+              "type": "boolean",
+              "default": true,
+              "description": "Add trailing semicolon for one-line blocks."
+            },
+            "focreBlocksToBeOneLine": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "description": "List of block names that should always be formatted as one-line blocks."
+            }
+          }
         }
       }
     }

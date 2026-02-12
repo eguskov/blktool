@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as child_process from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 
 import { blk } from './blk-pegjs';
 
@@ -36,7 +37,7 @@ function getPath(uri: vscode.Uri | string)
   return filePath.replace(getFilename(uri), '');
 }
 
-function getFullPathFromInclude(text: string, root_path: string)
+function getFullPathFromInclude(text: string, root_path: string): string | null
 {
   if (!text)
     return null;
@@ -207,6 +208,88 @@ function validateBlk(document: vscode.TextDocument)
   });
 }
 
+async function createTempFileOnDisk(content): Promise<vscode.Uri>
+{
+  const tmpDir = os.tmpdir();
+  const filename = `blktool-${Date.now()}-${Math.floor(Math.random()*10000)}.blk`;
+  const fullPath = path.join(tmpDir, filename);
+  await fs.writeFile(fullPath, content, 'utf8', (err) => {
+    if (err) {
+      console.error('Error writing temporary file:', err);
+      throw err;
+    }
+  });
+  return vscode.Uri.file(fullPath);
+}
+
+function createTemporaryFileWithContent(content: string): Promise<string>
+{
+  return new Promise((resolve, reject) =>
+  {
+    createTempFileOnDisk(content).then(uri => {resolve(uri.fsPath);}).catch(reject);
+  });
+}
+
+function replaceAllStringsInFile(filePath: string, pattern: RegExp, replacer: (str: string) => string | null): Promise<number>
+{
+  return new Promise((resolve, reject) =>
+  {
+    fs.readFile(filePath, 'utf8', (err, data) =>
+    {
+      if (err) return reject(err);
+      let replacemntCount = 0;
+      const newData = data.replace(pattern, (match, p1) => {
+        let res = replacer(p1);
+        if (res === null)
+        {
+          return match;
+        }
+        else
+        {
+          replacemntCount++;
+          return res;
+        }
+      });
+      fs.writeFile(filePath, newData, 'utf8', (err) =>
+      {
+        if (err) return reject(err);
+        resolve(replacemntCount);
+      });
+    });
+  });
+}
+
+let replacedParamsCache = {};
+
+async function replaceAllParamsAsIncludes(document: vscode.TextDocument, resolveParamsAsIncludes: string[], tempFilePath: string): Promise<{replacementCount: number, includes: string[]}>
+{
+  let replacementCount = 0;
+  let includes = {};
+  for (let param of resolveParamsAsIncludes)
+  {
+    let count = await replaceAllStringsInFile(tempFilePath, new RegExp(`${param}:t(?:\s*)=(?:\s*)[\"'](.*\.blk)[\"']`, 'gi'), (str) => {
+      console.log({str});
+
+      if (str.indexOf('*') >= 0)
+        return null;
+
+      if (replacedParamsCache[str])
+        return "/*  */";
+
+      let incFullPath = getFullPathFromInclude(`"${str}"`, getPath(document.uri));
+      if (incFullPath)
+        includes[incFullPath] = true;
+      
+      replacedParamsCache[str] = true;
+
+      return `include "${str}"`;
+    });
+
+    replacementCount += count;
+  }
+  return {replacementCount, includes: Object.keys(includes)};
+}
+
 export function activate(context: vscode.ExtensionContext)
 {
   let out = vscode.window.createOutputChannel("BLKTool");
@@ -279,35 +362,114 @@ export function activate(context: vscode.ExtensionContext)
 
       if (filename)
       {
+        replacedParamsCache = {};
+
         let conf = vscode.workspace.getConfiguration("blktool");
         let mountPoints = conf.get<{ [key: string]: string }>('mountPoints');
+        let resolveParamsAsIncludes = conf.get<string[]>('resolveParamsAsIncludes');
+        let searchDirs = conf.get<string[]>('searchDirs');
         let extDir = vscode.extensions.getExtension("eguskov.blktool").extensionPath;
         let fileDir = path.dirname(document.fileName);
+        var searchDirsCmd = [`-addpath:${fileDir}`];
+        var searchDirsMap = {};
+        for (let dir of searchDirs)
+        {
+          searchDirsMap[dir] = true;
+          searchDirsCmd.push(`-addpath:${dir}`);
+        }
         var mountPointsCmd = [];
         for (let key in mountPoints)
         {
           mountPointsCmd.push('-mount:' + key.replace('%', '') + '=' + mountPoints[key]);
         }
 
-        diagnosticCollection.clear();
-        
-        child_process.execFile(path.join(extDir, 'binBlk.exe'), [path.basename(document.fileName), '-', '-t', '-root:' + conf.get('root'), '-final'].concat(mountPointsCmd), { cwd: fileDir }, function (err, data)
+        let resolveBLKFnWithCallback = function(blkPath: string, callback: (err: Error, data: string) => void)
         {
-          if (err)
-          {
-            vscode.window.showErrorMessage(data);
+          child_process.execFile(path.join(extDir, 'binBlk.exe'), [blkPath, '-', '-t', '-root:' + conf.get('root'), '-final'].concat(mountPointsCmd, searchDirsCmd), { cwd: fileDir }, callback);
+        };
 
-            diagnosticCollection.set(document.uri, parseBLKErrors(document, data));
-
-            vscode.commands.executeCommand('workbench.action.problems.focus');
-          }
-          else
+        let resolveBLKFn = function(blkPath: string)
+        {
+          resolveBLKFnWithCallback(blkPath, (err, data) =>
           {
-            vscode.workspace.openTextDocument({language: 'blk'}).then(value => {
-              vscode.window.showTextDocument(value, vscode.ViewColumn.Two, false).then(editor => editor.edit(builder => builder.insert(editor.selection.start, data)))
-            });
-          }
-        });
+            if (err)
+            {
+              vscode.window.showErrorMessage(data);
+
+              diagnosticCollection.set(document.uri, parseBLKErrors(document, data));
+
+              vscode.commands.executeCommand('workbench.action.problems.focus');
+            }
+            else
+            {
+              vscode.workspace.openTextDocument({language: 'blk'}).then(value => {
+                vscode.window.showTextDocument(value, vscode.ViewColumn.Two, false).then(editor => editor.edit(builder => builder.insert(editor.selection.start, data)))
+              });
+            }
+          });
+        };
+
+        if (resolveParamsAsIncludes && resolveParamsAsIncludes.length > 0)
+        {
+          let showErrorFn = err => { vscode.window.showErrorMessage(`Error: ${err.message}`); };
+
+          createTemporaryFileWithContent(document.getText()).then(tempFilePath =>
+          {
+            let onDoneReplacement = (replacementResult: {replacementCount: number, includes: string[]}) =>
+            {
+              let {replacementCount, includes} = replacementResult;
+              if (replacementCount <= 0)
+              {
+                vscode.workspace.openTextDocument(tempFilePath).then(value => vscode.window.showTextDocument(value, vscode.ViewColumn.Two, false), onFileOpenError);
+              }
+              else
+              {
+                for (let inc of includes)
+                {
+                  let addpath = path.dirname(inc);
+                  if (!searchDirsMap[addpath])
+                  {
+                    searchDirsMap[addpath] = true;
+                    searchDirsCmd.push(`-addpath:${addpath}`);
+                  }
+                }
+                resolveBLKFnWithCallback(tempFilePath, (err, data) =>
+                {
+                  if (err)
+                  {
+                    vscode.window.showErrorMessage(data);
+
+                    diagnosticCollection.set(document.uri, parseBLKErrors(document, data));
+
+                    vscode.commands.executeCommand('workbench.action.problems.focus');
+                  }
+                  else
+                  {
+                    fs.writeFile(tempFilePath, data, 'utf8', (err) =>
+                    {
+                      if (err)
+                      {
+                        showErrorFn(err);
+                      }
+                      else
+                      {
+                        replaceAllParamsAsIncludes(document, resolveParamsAsIncludes, tempFilePath).then(onDoneReplacement).catch(showErrorFn);
+                      }
+                    });
+                  }
+                });
+              }
+            };
+
+            replaceAllParamsAsIncludes(document, resolveParamsAsIncludes, tempFilePath).then(onDoneReplacement).catch(showErrorFn);
+          }).catch(showErrorFn);
+        }
+        else
+        {
+          resolveBLKFn(path.basename(document.fileName));
+        }
+
+        diagnosticCollection.clear();
       }
       else
         vscode.window.showErrorMessage('Include not found');

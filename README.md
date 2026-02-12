@@ -60,3 +60,8 @@ Formatting: Remove trailing whitesapces from comments
 ### 0.1.21
 
 Add formatting settings
+
+### 0.1.22
+
+Add blktool.resolveParamsAsIncludes to resolve a list of parameters as includes.
+For example, "import"

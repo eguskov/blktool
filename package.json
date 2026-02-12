@@ -2,7 +2,7 @@
   "name": "blktool",
   "displayName": "BlkTool",
   "description": "Blk tools",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "publisher": "eguskov",
   "engines": {
     "vscode": "^1.60.0"
@@ -87,7 +87,8 @@
           "default": {
             "%gameBase": "D:/dagor/skyquake/prog/gamebase/gamebase",
             "%danetlibs": "D:/dagor/prog/daNetGameLibs",
-            "%wtlibs": "D:/dagor/skyquake/prog/wtlibs"
+            "%wtlibs": "D:/dagor/skyquake/prog/wtlibs",
+            "%gameLibs": "D:/dagor/prog/gameLibs"
           }
         },
         "blktool.dependencyTree.readParams": {
@@ -172,6 +173,14 @@
               "description": "List of block names that should always be formatted as one-line blocks."
             }
           }
+        },
+        "blktool.resolveParamsAsIncludes": {
+          "type": "array",
+          "description": "List of parameter names that should be resolved as includes. For example, \"import\"",
+          "items": {
+            "type": "string"
+          },
+          "default": []
         }
       }
     }

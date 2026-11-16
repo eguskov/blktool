@@ -6,6 +6,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 
 import { blk } from './blk-pegjs';
+import { checkFnameCase } from './fnameCase';
 
 const g_mount_point_include_pattern = new RegExp("(?:\\binclude\\b)(?:\\s+)[\"']%(.*)[\"']", 'gi');
 const g_absolute_include_pattern = new RegExp("(?:\\binclude\\b)(?:\\s+)[\"']#(.*)[\"']", 'gi');
@@ -133,6 +134,12 @@ function getFullPathFromInclude(text: string, root_path: string): string | null
 
 let diagnosticCollection: vscode.DiagnosticCollection = null;
 
+function focusProblems()
+{
+  if (vscode.workspace.getConfiguration("blktool").get<boolean>('focusProblemsOnError'))
+    vscode.commands.executeCommand('workbench.action.problems.focus');
+}
+
 function parseBLKErrors(document: vscode.TextDocument, data: string)
 {
   var errors = []
@@ -173,10 +180,107 @@ function parseBLKErrors(document: vscode.TextDocument, data: string)
   return errors;
 }
 
+const FNAME_CASE_CODE = 'fname-case';
+
+let fnameCaseDiagnostics: vscode.DiagnosticCollection = null;
+let fnameCaseByOwner = new Map<string, Map<string, vscode.Diagnostic[]>>();
+
+function setFnameCaseDiagnostics(owner: string, byUri: Map<string, vscode.Diagnostic[]>)
+{
+  let prev = fnameCaseByOwner.get(owner);
+  let uris = new Set<string>(byUri.keys());
+  if (prev)
+    prev.forEach((_, uri) => uris.add(uri));
+
+  if (byUri.size > 0)
+    fnameCaseByOwner.set(owner, byUri);
+  else
+    fnameCaseByOwner.delete(owner);
+
+  uris.forEach(uri =>
+  {
+    let merged: vscode.Diagnostic[] = [];
+    let seen = new Set<string>();
+    fnameCaseByOwner.forEach(ownerDiags =>
+    {
+      for (let d of ownerDiags.get(uri) || [])
+      {
+        let key = `${d.range.start.line}:${d.range.start.character}:${d.message}`;
+        if (!seen.has(key))
+        {
+          seen.add(key);
+          merged.push(d);
+        }
+      }
+    });
+    fnameCaseDiagnostics.set(vscode.Uri.parse(uri), merged);
+  });
+}
+
+function validateFnameCase(document: vscode.TextDocument): boolean
+{
+  if (!fnameCaseDiagnostics || document.languageId !== 'blk' || document.uri.scheme !== 'file')
+    return false;
+
+  let byUri = new Map<string, vscode.Diagnostic[]>();
+  let conf = vscode.workspace.getConfiguration("blktool");
+  if (conf.get<boolean>('checkFnameCase'))
+  {
+    let issues = checkFnameCase(document.uri.fsPath, document.getText(), {
+      root: conf.get<string>('root'),
+      mountPoints: conf.get<{ [key: string]: string }>('mountPoints'),
+      searchDirs: conf.get<string[]>('searchDirs')
+    });
+    for (let issue of issues)
+    {
+      let diagnostic = new vscode.Diagnostic(
+        new vscode.Range(issue.line, issue.character, issue.endLine, issue.endCharacter),
+        `Wrong file name case in ${issue.kind} '${issue.written}', name on disk is '${issue.real}'`,
+        vscode.DiagnosticSeverity.Error);
+      diagnostic.source = 'blk';
+      diagnostic.code = FNAME_CASE_CODE;
+
+      let uri = (issue.file === document.uri.fsPath ? document.uri : vscode.Uri.file(issue.file)).toString();
+      if (!byUri.has(uri))
+        byUri.set(uri, []);
+      byUri.get(uri).push(diagnostic);
+    }
+  }
+  setFnameCaseDiagnostics(document.uri.toString(), byUri);
+  return byUri.size > 0;
+}
+
+class FnameCaseFixProvider implements vscode.CodeActionProvider
+{
+  provideCodeActions(document: vscode.TextDocument, range: vscode.Range, context: vscode.CodeActionContext): vscode.CodeAction[]
+  {
+    let actions: vscode.CodeAction[] = [];
+    for (let diagnostic of context.diagnostics)
+    {
+      if (diagnostic.code !== FNAME_CASE_CODE)
+        continue;
+
+      let match = /name on disk is '(.*)'$/.exec(diagnostic.message);
+      if (!match || document.getText(diagnostic.range).toLowerCase() !== match[1].toLowerCase())
+        continue;
+
+      let action = new vscode.CodeAction(`Change to '${match[1]}'`, vscode.CodeActionKind.QuickFix);
+      action.diagnostics = [diagnostic];
+      action.edit = new vscode.WorkspaceEdit();
+      action.edit.replace(document.uri, diagnostic.range, match[1]);
+      actions.push(action);
+    }
+    return actions;
+  }
+}
+
 function validateBlk(document: vscode.TextDocument)
 {
   if (!diagnosticCollection)
     return;
+
+  if (validateFnameCase(document))
+    focusProblems();
 
   let filename = getFilename(document.fileName);
 
@@ -199,7 +303,7 @@ function validateBlk(document: vscode.TextDocument)
     {
       diagnosticCollection.set(document.uri, parseBLKErrors(document, data));
 
-      vscode.commands.executeCommand('workbench.action.problems.focus');
+      focusProblems();
     }
     else
     {
@@ -304,6 +408,20 @@ export function activate(context: vscode.ExtensionContext)
 
   blk.setDiagnosticCollection(diagnosticCollection);
 
+  fnameCaseDiagnostics = vscode.languages.createDiagnosticCollection('blk-fname-case');
+  context.subscriptions.push(fnameCaseDiagnostics);
+
+  context.subscriptions.push(vscode.languages.registerCodeActionsProvider('blk', new FnameCaseFixProvider(),
+    { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }));
+
+  context.subscriptions.push(vscode.workspace.onDidCloseTextDocument(document =>
+    setFnameCaseDiagnostics(document.uri.toString(), new Map<string, vscode.Diagnostic[]>())));
+
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
+    if (e.affectsConfiguration('blktool'))
+      vscode.workspace.textDocuments.forEach(validateFnameCase);
+  }));
+
   vscode.languages.setLanguageConfiguration('blk', {
     wordPattern: /("(?:[^\\\"]*(?:\\.)?)*"?)|[^\s{}\[\],:]+/,
     indentationRules: {
@@ -398,7 +516,7 @@ export function activate(context: vscode.ExtensionContext)
 
               diagnosticCollection.set(document.uri, parseBLKErrors(document, data));
 
-              vscode.commands.executeCommand('workbench.action.problems.focus');
+              focusProblems();
             }
             else
             {
@@ -441,7 +559,7 @@ export function activate(context: vscode.ExtensionContext)
 
                     diagnosticCollection.set(document.uri, parseBLKErrors(document, data));
 
-                    vscode.commands.executeCommand('workbench.action.problems.focus');
+                    focusProblems();
                   }
                   else
                   {

@@ -2,7 +2,7 @@
   "name": "blktool",
   "displayName": "BlkTool",
   "description": "Blk tools",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "publisher": "eguskov",
   "engines": {
     "vscode": "^1.60.0"
@@ -181,6 +181,16 @@
             "type": "string"
           },
           "default": []
+        },
+        "blktool.checkFnameCase": {
+          "type": "boolean",
+          "description": "Report paths in include, import and import_optional that differ in letter case from the names on disk. Such paths do not work on case-sensitive platforms.",
+          "default": true
+        },
+        "blktool.focusProblemsOnError": {
+          "type": "boolean",
+          "description": "Focus the Problems panel when validation finds errors in a BLK file.",
+          "default": true
         }
       }
     }

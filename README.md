@@ -65,3 +65,10 @@ Add formatting settings
 
 Add blktool.resolveParamsAsIncludes to resolve a list of parameters as includes.
 For example, "import"
+
+### 0.1.23
+
+Add blktool.checkFnameCase to report paths in include, import and import_optional
+that differ in letter case from the names on disk. Has a quick fix.
+Add blktool.focusProblemsOnError to turn off the focus on the Problems panel
+when validation finds errors.
